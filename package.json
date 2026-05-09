@@ -16,7 +16,9 @@
     "app:portable": "npm run build && node scripts/package-portable.mjs",
     "app:dist": "npm run build && electron-builder --publish never",
     "check:system": "node scripts/check-system.mjs",
+    "hermes:wsl": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/enable-hermes-api-wsl.ps1",
     "lint": "eslint .",
+    "smoke:live": "node scripts/smoke-packaged-live.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "preview": "vite preview --host 127.0.0.1"

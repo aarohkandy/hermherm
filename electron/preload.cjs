@@ -1,4 +1,4 @@
-const { contextBridge } = require("node:electron");
+const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("hermherm", {
   isDesktop: true,
@@ -7,5 +7,10 @@ contextBridge.exposeInMainWorld("hermherm", {
     chrome: process.versions.chrome,
     electron: process.versions.electron,
     node: process.versions.node,
+  },
+  hermes: {
+    status: () => ipcRenderer.invoke("hermes:status"),
+    bootstrapWsl: () => ipcRenderer.invoke("hermes:bootstrap-wsl"),
+    chat: (payload) => ipcRenderer.invoke("hermes:chat", payload),
   },
 });

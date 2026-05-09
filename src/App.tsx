@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 import {
   Activity,
@@ -8,7 +8,6 @@ import {
   Check,
   ChevronRight,
   Clock3,
-  Cloud,
   Code2,
   Copy,
   FileText,
@@ -60,7 +59,7 @@ type ToolStep = {
   icon: "search" | "file" | "terminal" | "chart";
   label: string;
   detail: string;
-  status: "queued" | "running" | "done";
+  status: "queued" | "running" | "done" | "error";
 };
 
 type Scenario = {
@@ -228,21 +227,9 @@ const navItems = [
   { label: "Settings", icon: Settings },
 ];
 
-const inspectorRows = [
-  { label: "Cloud demo", value: "Active", icon: Cloud, good: true },
-  { label: "Local runtime", value: "Planned", icon: HardDrive },
-  {
-    label: "File access",
-    value: "Read-only sample",
-    icon: FolderOpen,
-    good: true,
-  },
-  { label: "Terminal", value: "Approval required", icon: TerminalSquare },
-];
-
 const roadmap = [
-  "Real streaming provider adapter",
-  "Hermes API health check",
+  "Streaming Hermes event renderer",
+  "Session picker from Hermes history",
   "Windows installer artifact",
   "Tauri migration spike",
 ];
@@ -252,10 +239,50 @@ const delay = (ms: number) =>
 
 const createId = () => Math.random().toString(36).slice(2);
 
+const liveHermesTools: ToolStep[] = [
+  {
+    id: "status",
+    icon: "terminal",
+    label: "Check Hermes API",
+    detail: "Health check on http://127.0.0.1:8642",
+    status: "queued",
+  },
+  {
+    id: "send",
+    icon: "terminal",
+    label: "Send prompt",
+    detail: "POST /v1/chat/completions with X-Hermes-Session-Id",
+    status: "queued",
+  },
+  {
+    id: "render",
+    icon: "file",
+    label: "Render response",
+    detail: "Markdown, tables, and code blocks stay inspectable",
+    status: "queued",
+  },
+];
+
+const directHermesClient = {
+  async status(): Promise<HermesStatus> {
+    return {
+      ok: false,
+      url: "http://127.0.0.1:8642",
+      error: "Open the desktop app for live Hermes mode.",
+    };
+  },
+  async chat(payload: { content: string; sessionId?: string }) {
+    void payload;
+    throw new Error("Live Hermes chat is available in the desktop app.");
+  },
+};
+
 function App() {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState("");
   const [isRunning, setIsRunning] = useState(false);
+  const [isBootstrapping, setIsBootstrapping] = useState(false);
+  const [hermesStatus, setHermesStatus] = useState<HermesStatus | null>(null);
   const [activeScenario, setActiveScenario] = useState<Scenario>(scenarios[0]);
   const [toolSteps, setToolSteps] = useState<ToolStep[]>(
     scenarios[0].tools.map((tool) => ({ ...tool, status: "done" })),
@@ -267,6 +294,81 @@ function App() {
     if (window.hermherm.platform === "darwin") return "macOS desktop";
     return "Desktop app";
   }, []);
+  const hermesClient = useMemo(
+    () => window.hermherm?.hermes ?? directHermesClient,
+    [],
+  );
+
+  const hermesAvailable = Boolean(hermesStatus?.ok);
+  const connectionLabel = hermesStatus?.ok
+    ? "Hermes connected"
+    : hermesStatus
+      ? "Hermes offline"
+      : "Checking Hermes";
+  const runtimeRows = [
+    {
+      label: "Hermes API",
+      value: hermesAvailable ? "Connected" : "Offline",
+      icon: Bot,
+      good: hermesAvailable,
+    },
+    {
+      label: "Runtime",
+      value: hermesAvailable ? "WSL localhost" : "Demo fallback",
+      icon: HardDrive,
+      good: hermesAvailable,
+    },
+    {
+      label: "File access",
+      value: "Hermes controlled",
+      icon: FolderOpen,
+      good: true,
+    },
+    { label: "Terminal", value: "Hermes policy", icon: TerminalSquare },
+  ];
+
+  useEffect(() => {
+    void hermesClient.status().then(setHermesStatus);
+  }, [hermesClient]);
+
+  async function bootstrapHermes() {
+    if (!window.hermherm?.hermes || isBootstrapping) return;
+
+    setIsBootstrapping(true);
+    setToolSteps(
+      liveHermesTools.map((step) => ({ ...step, status: "queued" })),
+    );
+
+    try {
+      setToolSteps((steps) =>
+        steps.map((step) =>
+          step.id === "status" ? { ...step, status: "running" } : step,
+        ),
+      );
+      const result = await window.hermherm.hermes.bootstrapWsl();
+      setHermesStatus(result.status);
+      setToolSteps((steps) =>
+        steps.map((step) =>
+          step.id === "status"
+            ? { ...step, status: result.status.ok ? "done" : "error" }
+            : step,
+        ),
+      );
+    } catch (error) {
+      setHermesStatus({
+        ok: false,
+        url: "http://127.0.0.1:8642",
+        error: error instanceof Error ? error.message : String(error),
+      });
+      setToolSteps((steps) =>
+        steps.map((step) =>
+          step.id === "status" ? { ...step, status: "error" } : step,
+        ),
+      );
+    } finally {
+      setIsBootstrapping(false);
+    }
+  }
 
   async function runScenario(scenario: Scenario, customPrompt?: string) {
     if (isRunning) return;
@@ -287,6 +389,113 @@ function App() {
     ]);
 
     await delay(240);
+
+    if (hermesAvailable) {
+      setToolSteps(liveHermesTools);
+      setToolSteps((steps) =>
+        steps.map((step) =>
+          step.id === "status" ? { ...step, status: "running" } : step,
+        ),
+      );
+
+      const status = await hermesClient.status();
+      setHermesStatus(status);
+      if (!status.ok) {
+        setToolSteps((steps) =>
+          steps.map((step) =>
+            step.id === "status" ? { ...step, status: "error" } : step,
+          ),
+        );
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === assistantId
+              ? {
+                  ...message,
+                  content: `Hermes is not reachable yet.\n\n${status.error ?? "Start or bootstrap Hermes, then try again."}`,
+                }
+              : message,
+          ),
+        );
+        setIsRunning(false);
+        return;
+      }
+
+      setToolSteps((steps) =>
+        steps.map((step) =>
+          step.id === "status" ? { ...step, status: "done" } : step,
+        ),
+      );
+      setToolSteps((steps) =>
+        steps.map((step) =>
+          step.id === "send" ? { ...step, status: "running" } : step,
+        ),
+      );
+
+      try {
+        const result = await hermesClient.chat({
+          content: prompt,
+          sessionId: "hermherm-desktop",
+        });
+        setToolSteps((steps) =>
+          steps.map((step) =>
+            step.id === "send" ? { ...step, status: "done" } : step,
+          ),
+        );
+        setToolSteps((steps) =>
+          steps.map((step) =>
+            step.id === "render" ? { ...step, status: "running" } : step,
+          ),
+        );
+
+        const content =
+          result.content ||
+          "Hermes returned an empty response. The API call succeeded, but there was no assistant text.";
+        const usageLine = result.usage?.total_tokens
+          ? `\n\n---\n_Run usage: ${result.usage.total_tokens.toLocaleString()} tokens._`
+          : "";
+        const chunks = `${content}${usageLine}`.match(/(.|[\r\n]){1,38}/g) ?? [
+          content,
+        ];
+
+        for (const chunk of chunks) {
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === assistantId
+                ? { ...message, content: `${message.content}${chunk}` }
+                : message,
+            ),
+          );
+          await delay(12);
+        }
+
+        setToolSteps((steps) =>
+          steps.map((step) =>
+            step.id === "render" ? { ...step, status: "done" } : step,
+          ),
+        );
+      } catch (error) {
+        setToolSteps((steps) =>
+          steps.map((step) =>
+            step.id === "send" ? { ...step, status: "error" } : step,
+          ),
+        );
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === assistantId
+              ? {
+                  ...message,
+                  content: `Hermes API call failed.\n\n\`\`\`text\n${
+                    error instanceof Error ? error.message : String(error)
+                  }\n\`\`\``,
+                }
+              : message,
+          ),
+        );
+      }
+
+      setIsRunning(false);
+      return;
+    }
 
     for (const tool of scenario.tools) {
       setToolSteps((steps) =>
@@ -353,6 +562,16 @@ function App() {
           New run
         </button>
 
+        <button
+          className="secondary-run-button"
+          type="button"
+          disabled={isBootstrapping}
+          onClick={() => void bootstrapHermes()}
+        >
+          <TerminalSquare size={16} />
+          {isBootstrapping ? "Starting Hermes" : "Connect Hermes"}
+        </button>
+
         <nav className="nav-list">
           {navItems.map((item) => (
             <button
@@ -390,18 +609,32 @@ function App() {
         </section>
 
         <div className="rail-footer">
-          <ShieldCheck size={16} />
-          <span>Demo mode: no files are touched.</span>
+          {hermesAvailable ? <ShieldCheck size={16} /> : <KeyRound size={16} />}
+          <span>
+            {hermesAvailable
+              ? "Live Hermes mode: prompts go through the local API."
+              : "Demo fallback is safe; connect Hermes for real runs."}
+          </span>
         </div>
       </aside>
 
       <section className="run-pane" aria-label="Run timeline">
         <header className="top-bar">
           <div>
-            <p className="eyebrow">First Windows playground</p>
-            <h2>See the product shape before wiring the engine.</h2>
+            <p className="eyebrow">Windows desktop agent</p>
+            <h2>
+              {hermesAvailable
+                ? "Hermes is live. Ask it something real."
+                : "Connect Hermes or explore the safe demo."}
+            </h2>
           </div>
           <div className="top-actions">
+            <span
+              className={`status-pill ${hermesAvailable ? "connected" : "offline"}`}
+            >
+              {hermesAvailable ? <Bot size={15} /> : <MonitorUp size={15} />}
+              {connectionLabel}
+            </span>
             <span className="status-pill">
               <MonitorUp size={15} />
               {platformLabel}
@@ -589,7 +822,7 @@ function App() {
             <Gauge size={18} />
           </div>
           <div className="inspector-list">
-            {inspectorRows.map((row) => (
+            {runtimeRows.map((row) => (
               <div className="inspector-row" key={row.label}>
                 <row.icon size={16} />
                 <span>{row.label}</span>
@@ -617,11 +850,12 @@ function App() {
           </div>
         </section>
 
-        <section className="key-panel">
-          <KeyRound size={17} />
+        <section className={`key-panel ${hermesAvailable ? "connected" : ""}`}>
+          {hermesAvailable ? <Bot size={17} /> : <KeyRound size={17} />}
           <span>
-            Provider keys and Hermes sidecars are intentionally not wired in
-            this first playground.
+            {hermesAvailable
+              ? `Connected to ${hermesStatus?.url ?? "Hermes"} through Electron's local bridge.`
+              : `Hermes API is not reachable yet${hermesStatus?.error ? `: ${hermesStatus.error}` : "."}`}
           </span>
         </section>
       </aside>

@@ -8,16 +8,17 @@ The production shell can still move to Tauri later. The current goal is to make 
 
 - Runs as a Windows desktop app.
 - Shows a polished three-pane agent workspace: navigation, run timeline, tool trace, output studio, and safety inspector.
-- Simulates streaming assistant output and visible tool calls.
+- Connects to a real Hermes Agent API server at `http://127.0.0.1:8642` when available.
+- Falls back to simulated demo output when Hermes is offline.
 - Includes starter playground tasks for research, tool debugging, and local-mode planning.
 - Builds a Windows installer through Electron Builder.
 - Adds GitHub Actions for Windows and macOS artifacts.
 
 ## What This Build Does Not Do Yet
 
-- It does not call Hermes Agent.
-- It does not call OpenAI, Anthropic, OpenRouter, or any hosted model.
-- It does not read or write your files.
+- It does not bundle Hermes Agent yet.
+- It does not bundle Ollama or a local model yet.
+- It does not manage Hermes permissions yet; real runs use your existing Hermes configuration.
 - It does not install Ollama or download a local model.
 - It is not code-signed yet, so Windows SmartScreen can warn on packaged builds.
 
@@ -31,6 +32,14 @@ start-windows.bat
 
 That script checks for Node, installs dependencies if needed, and starts the desktop app.
 
+If Hermes is already installed in WSL, double-click this once before testing live mode:
+
+```text
+connect-hermes-wsl.bat
+```
+
+That enables Hermes' local API server on `127.0.0.1:8642`, restarts the Hermes gateway, and checks `/health` plus `/v1/models`.
+
 If you prefer PowerShell:
 
 ```powershell
@@ -39,6 +48,28 @@ npm.cmd run app:dev
 ```
 
 Use `npm.cmd` instead of `npm` if PowerShell blocks `npm.ps1` on your machine.
+
+## Live Hermes Mode
+
+The app talks to Hermes through Electron's main process, not directly from the browser UI. That avoids CORS issues and keeps the renderer simpler.
+
+Expected local settings:
+
+```text
+HERMES_URL=http://127.0.0.1:8642
+HERMES_API_KEY=hermherm-local-dev
+```
+
+The WSL connector writes matching values into `~/.hermes/.env`:
+
+```text
+API_SERVER_ENABLED=true
+API_SERVER_HOST=127.0.0.1
+API_SERVER_PORT=8642
+API_SERVER_KEY=hermherm-local-dev
+```
+
+Then it restarts `hermes gateway`.
 
 ## Build A Windows Installer
 
@@ -61,6 +92,14 @@ npm.cmd run app:portable
 That creates a folder under `release/portable/`. Open the generated `HermHerm.exe` inside it.
 
 `npm.cmd run app:dist` uses Electron Builder to make a familiar installer. On some Windows machines, Electron Builder may need Developer Mode or symlink privileges because one of its signing helper downloads contains symlinks. `app:portable` avoids that and is the easier local test path.
+
+To smoke-test the packaged app against live Hermes:
+
+```powershell
+npm.cmd run hermes:wsl
+npm.cmd run app:portable
+npm.cmd run smoke:live
+```
 
 ## Health Check
 

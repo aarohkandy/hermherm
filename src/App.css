@@ -58,6 +58,7 @@
 }
 
 .new-run-button,
+.secondary-run-button,
 .nav-list button,
 .starter,
 .suggestion,
@@ -80,6 +81,24 @@
   border-radius: 8px;
   cursor: pointer;
   box-shadow: 0 12px 24px rgba(31, 122, 114, 0.2);
+}
+
+.secondary-run-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  color: #1f3f3b;
+  background: rgba(31, 122, 114, 0.1);
+  border: 1px solid rgba(31, 122, 114, 0.2);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.secondary-run-button:disabled {
+  cursor: progress;
+  opacity: 0.72;
 }
 
 .nav-list {
@@ -196,6 +215,18 @@
   font-size: 12px;
   font-weight: 650;
   white-space: nowrap;
+}
+
+.status-pill.connected {
+  color: #164e46;
+  background: rgba(31, 122, 114, 0.13);
+  border-color: rgba(31, 122, 114, 0.26);
+}
+
+.status-pill.offline {
+  color: #72513d;
+  background: rgba(197, 86, 67, 0.1);
+  border-color: rgba(197, 86, 67, 0.16);
 }
 
 .icon-button {
@@ -440,6 +471,11 @@
   background: rgba(31, 122, 114, 0.12);
 }
 
+.tool-row.error .tool-status {
+  color: #a54635;
+  background: rgba(197, 86, 67, 0.12);
+}
+
 .composer {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 40px;
@@ -657,6 +693,10 @@
 
 .key-panel svg {
   color: #a54635;
+}
+
+.key-panel.connected svg {
+  color: #1f7a72;
 }
 
 @media (max-width: 1220px) {

@@ -103,27 +103,33 @@ try {
   await send("Runtime.enable");
   await delay(6000);
 
-  const connected = await evalJs(
-    "document.body.innerText.includes('Hermes connected') && document.body.innerText.includes('Windows desktop')",
-  );
-  if (!connected) throw new Error(await evalJs("document.body.innerText"));
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    const body = await evalJs("document.body.innerText");
+    if (
+      body.includes("Local runtime ready") &&
+      body.toLowerCase().includes("windows")
+    ) {
+      break;
+    }
+    if (attempt === 119) throw new Error(body);
+    await delay(1000);
+  }
 
   await evalJs(`(() => {
     const el = document.querySelector('textarea');
     const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
-    setter.call(el, 'Reply with exactly: Packaged desktop Hermes works');
+    setter.call(el, 'Write one short sentence saying the packaged local app works.');
     el.dispatchEvent(new Event('input', { bubbles: true }));
     document.querySelector('.send-button').click();
   })()`);
 
-  for (let attempt = 0; attempt < 60; attempt += 1) {
+  for (let attempt = 0; attempt < 240; attempt += 1) {
     const body = await evalJs("document.body.innerText");
-    if (body.includes("Hermes API call failed")) throw new Error(body);
-    if (
-      body.includes("Packaged desktop Hermes works") &&
-      body.includes("Run usage:")
-    ) {
-      console.log("Packaged live Hermes smoke test passed.");
+    if (body.includes("I could not get a local response yet")) {
+      throw new Error(body);
+    }
+    if (body.includes("Local response via")) {
+      console.log("Packaged local runtime smoke test passed.");
       await cleanup();
       process.exit(0);
     }

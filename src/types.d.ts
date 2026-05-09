@@ -13,16 +13,10 @@ declare global {
       hermes: {
         status: () => Promise<HermesStatus>;
         bootstrapWsl: () => Promise<{ output: string; status: HermesStatus }>;
-        chat: (payload: { content: string; sessionId?: string }) => Promise<{
-          id?: string;
+        chat: (payload: {
           content: string;
-          usage?: {
-            prompt_tokens?: number;
-            completion_tokens?: number;
-            total_tokens?: number;
-          };
-          raw?: unknown;
-        }>;
+          history?: Array<{ role: "assistant" | "user"; content: string }>;
+        }) => Promise<HermesChatResult>;
       };
     };
   }
@@ -30,8 +24,35 @@ declare global {
   type HermesStatus = {
     ok: boolean;
     url: string;
+    profile?: string;
+    model?: string;
+    ollamaUrl?: string;
     error?: string;
-    health?: unknown;
-    models?: Array<{ id?: string }>;
+    hermes?: {
+      ok?: boolean;
+      error?: string;
+      health?: unknown;
+      models?: Array<{ id?: string }>;
+    };
+    ollama?: {
+      ok?: boolean;
+      version?: string;
+      error?: string;
+      models?: string[];
+    };
+  };
+
+  type HermesChatResult = {
+    id?: string;
+    content: string;
+    runtime?: string;
+    model?: string;
+    usage?: {
+      prompt_tokens?: number;
+      completion_tokens?: number;
+      total_tokens?: number;
+      total_duration_ms?: number;
+    };
+    raw?: unknown;
   };
 }

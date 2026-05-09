@@ -1,13 +1,14 @@
 :root {
-  --bg: #f6f7f9;
-  --shell: #eef1f4;
-  --canvas: #f9fafb;
-  --panel: #ffffff;
-  --hover: #edf1f4;
-  --line: #dde3ea;
-  --strong: #111827;
-  --text: #4b5565;
-  --muted: #7a8698;
+  --bg: #080b10;
+  --shell: #0c1118;
+  --canvas: #0a0f15;
+  --panel: #111821;
+  --hover: #172331;
+  --line: #1d2a38;
+  --strong: #f4f7fb;
+  --text: #c3ced9;
+  --muted: #7e8b99;
+  --accent: #54d6c3;
   --mono:
     "Cascadia Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-family:
@@ -36,13 +37,13 @@
 html,
 body,
 #root {
+  width: 100%;
   min-width: 0;
-  min-height: 100%;
+  height: 100%;
   margin: 0;
 }
 
 body {
-  min-height: 100vh;
   overflow: hidden;
 }
 
@@ -53,11 +54,11 @@ textarea {
 
 button:focus-visible,
 textarea:focus-visible {
-  outline: 2px solid rgba(31, 122, 114, 0.45);
+  outline: 2px solid rgba(84, 214, 195, 0.48);
   outline-offset: 2px;
 }
 
 ::selection {
-  color: white;
-  background: #1f7a72;
+  color: #041716;
+  background: var(--accent);
 }

@@ -1,46 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 import {
-  Activity,
-  Archive,
   ArrowUp,
   Bot,
-  Check,
-  ChevronRight,
-  Clock3,
-  Code2,
-  Copy,
-  FileText,
-  FolderOpen,
-  Gauge,
+  CheckCircle2,
   HardDrive,
-  KeyRound,
-  Layers3,
-  LockKeyhole,
-  MessageSquareText,
-  Mic,
-  MonitorUp,
-  PanelRight,
-  Play,
-  Plus,
-  Search,
-  Settings,
-  ShieldCheck,
+  Loader2,
+  MessageSquarePlus,
+  Moon,
   Sparkles,
-  TerminalSquare,
-  Wrench,
-  X,
+  WifiOff,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
 import "./App.css";
@@ -51,848 +22,343 @@ type Message = {
   id: string;
   role: Role;
   content: string;
-  tone?: "quiet" | "normal";
+  pending?: boolean;
 };
 
-type ToolStep = {
-  id: string;
-  icon: "search" | "file" | "terminal" | "chart";
-  label: string;
-  detail: string;
-  status: "queued" | "running" | "done" | "error";
-};
-
-type Scenario = {
-  id: string;
+type StarterTask = {
   title: string;
-  kicker: string;
   prompt: string;
-  artifactTitle: string;
-  artifactKind: string;
-  response: string;
-  chart: Array<{ label: string; value: number; confidence: number }>;
-  bullets: string[];
-  tools: Array<Omit<ToolStep, "status">>;
 };
 
-const scenarios: Scenario[] = [
+const starterTasks: StarterTask[] = [
   {
-    id: "research-brief",
-    title: "Research Brief",
-    kicker: "Turn messy links into a source-backed summary",
+    title: "Explain the local setup",
     prompt:
-      "Make a clean research brief for launching a consumer AI desktop app.",
-    artifactTitle: "Consumer AI Desktop Brief",
-    artifactKind: "Research artifact",
-    response:
-      "I built a first-pass brief around the thing that matters most: **trustable setup**. The pattern is not to make people learn an agent framework. The pattern is to make the first useful result appear, then reveal what the agent did in a calm trace.\n\n| Priority | Decision | Why it matters |\n| --- | --- | --- |\n| 1 | Hosted demo first | Lets Windows users test immediately |\n| 2 | Visible tool cards | Makes agent work inspectable |\n| 3 | Artifact pane | Turns chat into durable output |\n| 4 | Local mode later | Keeps the first build from drowning in model/runtime setup |\n\nNext I would wire this UI to a real streaming provider, then move the shell back to Tauri once Rust/MSVC are installed.",
-    chart: [
-      { label: "Install", value: 92, confidence: 88 },
-      { label: "Trust", value: 84, confidence: 79 },
-      { label: "Output", value: 78, confidence: 82 },
-      { label: "Local", value: 61, confidence: 70 },
-      { label: "Voice", value: 34, confidence: 51 },
-    ],
-    bullets: [
-      "Keep the first run inside a safe demo workspace.",
-      "Show the run trace as a product feature, not debug noise.",
-      "Make cloud/local status visible in every run.",
-    ],
-    tools: [
-      {
-        id: "scan",
-        icon: "search",
-        label: "Searched product references",
-        detail:
-          "Claude, ChatGPT Desktop, Granola, Raycast, Open WebUI patterns",
-      },
-      {
-        id: "rank",
-        icon: "chart",
-        label: "Ranked launch risks",
-        detail:
-          "Install, trust, output quality, local model setup, voice latency",
-      },
-      {
-        id: "write",
-        icon: "file",
-        label: "Drafted brief",
-        detail:
-          "Created a durable artifact with next actions and decision notes",
-      },
-    ],
+      "Explain what runtime you are using and how you are separate from my default Hermes setup.",
   },
   {
-    id: "tool-lab",
-    title: "Tool Lab",
-    kicker: "Debug an agent run without staring at JSON",
-    prompt: "Show me how a tool debugging lab should work for normal people.",
-    artifactTitle: "Tool Lab Run Trace",
-    artifactKind: "Debug artifact",
-    response:
-      'The tool lab should feel like a flight recorder. Each tool gets a friendly name, visible inputs, visible outputs, retry controls, and a clear boundary around what it can touch.\n\n```json\n{\n  "tool": "filesystem.search",\n  "scope": "sample-workspace",\n  "approval": "read-only",\n  "status": "passed"\n}\n```\n\nThe important design move is to collapse details by default while keeping every claim inspectable.',
-    chart: [
-      { label: "Inputs", value: 76, confidence: 72 },
-      { label: "Logs", value: 88, confidence: 83 },
-      { label: "Retry", value: 69, confidence: 64 },
-      { label: "Secrets", value: 94, confidence: 90 },
-      { label: "Replay", value: 81, confidence: 77 },
-    ],
-    bullets: [
-      "Make permissions readable before the tool runs.",
-      "Keep inputs, outputs, and errors in one expandable row.",
-      "Let users copy, retry, or disable a tool from the trace.",
-    ],
-    tools: [
-      {
-        id: "schema",
-        icon: "terminal",
-        label: "Loaded sample tool schema",
-        detail: "Read-only filesystem search with one safe demo folder",
-      },
-      {
-        id: "call",
-        icon: "terminal",
-        label: "Simulated tool call",
-        detail: "Captured arguments, result preview, duration, and retry state",
-      },
-      {
-        id: "artifact",
-        icon: "chart",
-        label: "Rendered trace",
-        detail: "Turned raw tool output into a compact run inspector",
-      },
-    ],
+    title: "Plan the next build",
+    prompt:
+      "Make a practical next-build checklist for turning HermHerm into a polished consumer desktop app.",
   },
   {
-    id: "local-mode",
-    title: "Local Mode Plan",
-    kicker: "Map the road to private, offline agent runs",
-    prompt: "Plan the local mode path without making v1 too heavy.",
-    artifactTitle: "Local Mode Readiness",
-    artifactKind: "Build plan",
-    response:
-      "Local mode should be sold as the trust upgrade, not buried in settings. The app can prepare the path now by keeping provider status, model status, and filesystem scope visible.\n\n**Recommended sequence**\n\n1. Ship hosted demo mode.\n2. Add a Hermes sidecar health check.\n3. Add Ollama detection before downloading anything.\n4. Add model download progress with pause/resume.\n5. Gate terminal/file write tools behind approval.",
-    chart: [
-      { label: "UI", value: 91, confidence: 86 },
-      { label: "Hermes", value: 58, confidence: 62 },
-      { label: "Ollama", value: 46, confidence: 55 },
-      { label: "Signing", value: 38, confidence: 49 },
-      { label: "Models", value: 42, confidence: 52 },
-    ],
-    bullets: [
-      "Do not bundle a giant model in the first installer.",
-      "Treat sidecar health as a visible product state.",
-      "Make offline/privacy copy concrete and verifiable.",
-    ],
-    tools: [
-      {
-        id: "health",
-        icon: "terminal",
-        label: "Checked runtime assumptions",
-        detail: "Hermes API server, Ollama endpoint, model context length",
-      },
-      {
-        id: "scope",
-        icon: "file",
-        label: "Mapped safe scopes",
-        detail:
-          "Read-only demo workspace first; write access requires approval",
-      },
-      {
-        id: "plan",
-        icon: "chart",
-        label: "Built rollout plan",
-        detail: "Hosted v1, local v1.1, voice after transport is stable",
-      },
-    ],
+    title: "Write a product note",
+    prompt:
+      "Draft a short product note for HermHerm as a private local AI desktop app.",
   },
 ];
 
-const initialMessages: Message[] = [
-  {
-    id: "welcome",
-    role: "assistant",
-    tone: "quiet",
-    content:
-      "Pick a starter task or type your own. This first build runs in demo mode, so you can test the desktop shell, streaming feel, tool cards, and artifact pane before any real provider keys or Hermes sidecars exist.",
-  },
-];
+const welcomeMessage: Message = {
+  id: "welcome",
+  role: "assistant",
+  content:
+    "I am ready when the local runtime is ready. Pick a starter task or ask me directly.",
+};
 
-const navItems = [
-  { label: "Playground", icon: MessageSquareText, active: true },
-  { label: "Runs", icon: Activity },
-  { label: "Artifacts", icon: Archive },
-  { label: "Tools", icon: Wrench },
-  { label: "Settings", icon: Settings },
-];
-
-const roadmap = [
-  "Streaming Hermes event renderer",
-  "Session picker from Hermes history",
-  "Windows installer artifact",
-  "Tauri migration spike",
-];
-
-const delay = (ms: number) =>
-  new Promise((resolve) => window.setTimeout(resolve, ms));
-
-const createId = () => Math.random().toString(36).slice(2);
-
-const liveHermesTools: ToolStep[] = [
-  {
-    id: "status",
-    icon: "terminal",
-    label: "Check Hermes API",
-    detail: "Health check on http://127.0.0.1:8642",
-    status: "queued",
-  },
-  {
-    id: "send",
-    icon: "terminal",
-    label: "Send prompt",
-    detail: "POST /v1/chat/completions with X-Hermes-Session-Id",
-    status: "queued",
-  },
-  {
-    id: "render",
-    icon: "file",
-    label: "Render response",
-    detail: "Markdown, tables, and code blocks stay inspectable",
-    status: "queued",
-  },
-];
-
-const directHermesClient = {
+const browserClient = {
   async status(): Promise<HermesStatus> {
     return {
       ok: false,
-      url: "http://127.0.0.1:8642",
-      error: "Open the desktop app for live Hermes mode.",
+      url: "http://127.0.0.1:8643",
+      profile: "hermherm",
+      model: "llama3.2:3b",
+      error: "Open the desktop app to use the local runtime.",
     };
   },
-  async chat(payload: { content: string; sessionId?: string }) {
-    void payload;
-    throw new Error("Live Hermes chat is available in the desktop app.");
+  async bootstrapWsl(): Promise<{ output: string; status: HermesStatus }> {
+    throw new Error("Local startup is available in the desktop app.");
+  },
+  async chat(): Promise<HermesChatResult> {
+    throw new Error("Local chat is available in the desktop app.");
   },
 };
 
-function App() {
-  const [messages, setMessages] = useState<Message[]>(initialMessages);
-  const [input, setInput] = useState("");
-  const [isRunning, setIsRunning] = useState(false);
-  const [isBootstrapping, setIsBootstrapping] = useState(false);
-  const [hermesStatus, setHermesStatus] = useState<HermesStatus | null>(null);
-  const [activeScenario, setActiveScenario] = useState<Scenario>(scenarios[0]);
-  const [toolSteps, setToolSteps] = useState<ToolStep[]>(
-    scenarios[0].tools.map((tool) => ({ ...tool, status: "done" })),
-  );
+const createId = () => Math.random().toString(36).slice(2);
 
+function App() {
+  const [messages, setMessages] = useState<Message[]>([welcomeMessage]);
+  const [input, setInput] = useState("");
+  const [status, setStatus] = useState<HermesStatus | null>(null);
+  const [isStarting, setIsStarting] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const [startupNote, setStartupNote] = useState("");
+  const timelineRef = useRef<HTMLDivElement | null>(null);
+  const bootAttempted = useRef(false);
+
+  const client = useMemo(() => window.hermherm?.hermes ?? browserClient, []);
   const platformLabel = useMemo(() => {
     if (!window.hermherm?.isDesktop) return "Browser preview";
-    if (window.hermherm.platform === "win32") return "Windows desktop";
-    if (window.hermherm.platform === "darwin") return "macOS desktop";
-    return "Desktop app";
+    if (window.hermherm.platform === "win32") return "Windows";
+    if (window.hermherm.platform === "darwin") return "macOS";
+    return "Desktop";
   }, []);
-  const hermesClient = useMemo(
-    () => window.hermherm?.hermes ?? directHermesClient,
-    [],
-  );
 
-  const hermesAvailable = Boolean(hermesStatus?.ok);
-  const connectionLabel = hermesStatus?.ok
-    ? "Hermes connected"
-    : hermesStatus
-      ? "Hermes offline"
-      : "Checking Hermes";
-  const runtimeRows = [
-    {
-      label: "Hermes API",
-      value: hermesAvailable ? "Connected" : "Offline",
-      icon: Bot,
-      good: hermesAvailable,
-    },
-    {
-      label: "Runtime",
-      value: hermesAvailable ? "WSL localhost" : "Demo fallback",
-      icon: HardDrive,
-      good: hermesAvailable,
-    },
-    {
-      label: "File access",
-      value: "Hermes controlled",
-      icon: FolderOpen,
-      good: true,
-    },
-    { label: "Terminal", value: "Hermes policy", icon: TerminalSquare },
-  ];
+  const runtimeReady = Boolean(status?.ok);
+  const runtimeLabel = runtimeReady
+    ? "Local runtime ready"
+    : isStarting
+      ? "Starting local runtime"
+      : "Local runtime offline";
+  const detailLabel = runtimeReady
+    ? `${status?.model ?? "local model"} through isolated ${status?.profile ?? "hermherm"} runtime`
+    : status?.error ?? "Checking WSL, Hermes, and the app-owned model store";
 
   useEffect(() => {
-    void hermesClient.status().then(setHermesStatus);
-  }, [hermesClient]);
+    let cancelled = false;
 
-  async function bootstrapHermes() {
-    if (!window.hermherm?.hermes || isBootstrapping) return;
+    async function checkAndStart() {
+      const firstStatus = await client.status();
+      if (cancelled) return;
+      setStatus(firstStatus);
 
-    setIsBootstrapping(true);
-    setToolSteps(
-      liveHermesTools.map((step) => ({ ...step, status: "queued" })),
-    );
-
-    try {
-      setToolSteps((steps) =>
-        steps.map((step) =>
-          step.id === "status" ? { ...step, status: "running" } : step,
-        ),
-      );
-      const result = await window.hermherm.hermes.bootstrapWsl();
-      setHermesStatus(result.status);
-      setToolSteps((steps) =>
-        steps.map((step) =>
-          step.id === "status"
-            ? { ...step, status: result.status.ok ? "done" : "error" }
-            : step,
-        ),
-      );
-    } catch (error) {
-      setHermesStatus({
-        ok: false,
-        url: "http://127.0.0.1:8642",
-        error: error instanceof Error ? error.message : String(error),
-      });
-      setToolSteps((steps) =>
-        steps.map((step) =>
-          step.id === "status" ? { ...step, status: "error" } : step,
-        ),
-      );
-    } finally {
-      setIsBootstrapping(false);
+      if (
+        window.hermherm?.isDesktop &&
+        !firstStatus.ok &&
+        !bootAttempted.current
+      ) {
+        bootAttempted.current = true;
+        setIsStarting(true);
+        setStartupNote("Preparing the isolated hermherm runtime...");
+        try {
+          const result = await client.bootstrapWsl();
+          if (cancelled) return;
+          setStatus(result.status);
+          setStartupNote(
+            result.status.ok
+              ? "Local runtime is ready."
+              : result.status.error ?? "Runtime startup finished with warnings.",
+          );
+        } catch (error) {
+          if (cancelled) return;
+          setStatus({
+            ok: false,
+            url: "http://127.0.0.1:8643",
+            profile: "hermherm",
+            model: "llama3.2:3b",
+            error: error instanceof Error ? error.message : String(error),
+          });
+          setStartupNote("Local runtime could not start automatically.");
+        } finally {
+          if (!cancelled) setIsStarting(false);
+        }
+      }
     }
+
+    void checkAndStart();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
+
+  useEffect(() => {
+    timelineRef.current?.scrollTo({
+      top: timelineRef.current.scrollHeight,
+      behavior: "smooth",
+    });
+  }, [messages]);
+
+  function newChat() {
+    setMessages([welcomeMessage]);
+    setInput("");
   }
 
-  async function runScenario(scenario: Scenario, customPrompt?: string) {
-    if (isRunning) return;
-
-    const prompt = customPrompt?.trim() || scenario.prompt;
-    if (!prompt) return;
-
-    setIsRunning(true);
-    setActiveScenario(scenario);
-    setInput("");
-    setToolSteps(scenario.tools.map((tool) => ({ ...tool, status: "queued" })));
+  async function sendPrompt(prompt: string) {
+    const content = prompt.trim();
+    if (!content || isSending) return;
 
     const assistantId = createId();
+    const history = messages
+      .filter((message) => !message.pending)
+      .map(({ role, content }) => ({ role, content }));
+
+    setInput("");
+    setIsSending(true);
     setMessages((current) => [
       ...current,
-      { id: createId(), role: "user", content: prompt },
-      { id: assistantId, role: "assistant", content: "" },
+      { id: createId(), role: "user", content },
+      { id: assistantId, role: "assistant", content: "Thinking...", pending: true },
     ]);
 
-    await delay(240);
-
-    if (hermesAvailable) {
-      setToolSteps(liveHermesTools);
-      setToolSteps((steps) =>
-        steps.map((step) =>
-          step.id === "status" ? { ...step, status: "running" } : step,
-        ),
-      );
-
-      const status = await hermesClient.status();
-      setHermesStatus(status);
-      if (!status.ok) {
-        setToolSteps((steps) =>
-          steps.map((step) =>
-            step.id === "status" ? { ...step, status: "error" } : step,
-          ),
-        );
-        setMessages((current) =>
-          current.map((message) =>
-            message.id === assistantId
-              ? {
-                  ...message,
-                  content: `Hermes is not reachable yet.\n\n${status.error ?? "Start or bootstrap Hermes, then try again."}`,
-                }
-              : message,
-          ),
-        );
-        setIsRunning(false);
-        return;
-      }
-
-      setToolSteps((steps) =>
-        steps.map((step) =>
-          step.id === "status" ? { ...step, status: "done" } : step,
-        ),
-      );
-      setToolSteps((steps) =>
-        steps.map((step) =>
-          step.id === "send" ? { ...step, status: "running" } : step,
-        ),
-      );
-
-      try {
-        const result = await hermesClient.chat({
-          content: prompt,
-          sessionId: "hermherm-desktop",
-        });
-        setToolSteps((steps) =>
-          steps.map((step) =>
-            step.id === "send" ? { ...step, status: "done" } : step,
-          ),
-        );
-        setToolSteps((steps) =>
-          steps.map((step) =>
-            step.id === "render" ? { ...step, status: "running" } : step,
-          ),
-        );
-
-        const content =
-          result.content ||
-          "Hermes returned an empty response. The API call succeeded, but there was no assistant text.";
-        const usageLine = result.usage?.total_tokens
-          ? `\n\n---\n_Run usage: ${result.usage.total_tokens.toLocaleString()} tokens._`
+    try {
+      const result = await client.chat({ content, history });
+      const footer = result.usage?.total_duration_ms
+        ? `\n\n_Local response via ${result.model ?? "Ollama"} in ${Math.round(
+            result.usage.total_duration_ms / 1000,
+          )}s._`
+        : result.model
+          ? `\n\n_Local response via ${result.model}._`
           : "";
-        const chunks = `${content}${usageLine}`.match(/(.|[\r\n]){1,38}/g) ?? [
-          content,
-        ];
 
-        for (const chunk of chunks) {
-          setMessages((current) =>
-            current.map((message) =>
-              message.id === assistantId
-                ? { ...message, content: `${message.content}${chunk}` }
-                : message,
-            ),
-          );
-          await delay(12);
-        }
-
-        setToolSteps((steps) =>
-          steps.map((step) =>
-            step.id === "render" ? { ...step, status: "done" } : step,
-          ),
-        );
-      } catch (error) {
-        setToolSteps((steps) =>
-          steps.map((step) =>
-            step.id === "send" ? { ...step, status: "error" } : step,
-          ),
-        );
-        setMessages((current) =>
-          current.map((message) =>
-            message.id === assistantId
-              ? {
-                  ...message,
-                  content: `Hermes API call failed.\n\n\`\`\`text\n${
-                    error instanceof Error ? error.message : String(error)
-                  }\n\`\`\``,
-                }
-              : message,
-          ),
-        );
-      }
-
-      setIsRunning(false);
-      return;
-    }
-
-    for (const tool of scenario.tools) {
-      setToolSteps((steps) =>
-        steps.map((step) =>
-          step.id === tool.id ? { ...step, status: "running" } : step,
-        ),
-      );
-      await delay(520);
-      setToolSteps((steps) =>
-        steps.map((step) =>
-          step.id === tool.id ? { ...step, status: "done" } : step,
-        ),
-      );
-    }
-
-    const chunks = scenario.response.match(/(.|[\r\n]){1,34}/g) ?? [
-      scenario.response,
-    ];
-    for (const chunk of chunks) {
       setMessages((current) =>
         current.map((message) =>
           message.id === assistantId
-            ? { ...message, content: `${message.content}${chunk}` }
+            ? {
+                ...message,
+                pending: false,
+                content:
+                  (result.content || "The local model returned an empty response.") +
+                  footer,
+              }
             : message,
         ),
       );
-      await delay(18);
+      const latestStatus = await client.status();
+      setStatus(latestStatus);
+    } catch (error) {
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === assistantId
+            ? {
+                ...message,
+                pending: false,
+                content: `I could not get a local response yet.\n\n\`\`\`text\n${
+                  error instanceof Error ? error.message : String(error)
+                }\n\`\`\``,
+              }
+            : message,
+        ),
+      );
+    } finally {
+      setIsSending(false);
     }
-
-    setIsRunning(false);
   }
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    void runScenario(activeScenario, input);
+    void sendPrompt(input);
   }
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      void runScenario(activeScenario, input);
+      void sendPrompt(input);
     }
   }
 
   return (
     <main className="app-shell">
-      <aside className="left-rail" aria-label="Primary">
+      <aside className="side-rail" aria-label="HermHerm">
         <div className="brand-lockup">
           <div className="brand-mark">
-            <Sparkles size={20} strokeWidth={2.2} />
+            <Sparkles size={19} />
           </div>
           <div>
-            <p className="eyebrow">HermHerm</p>
-            <h1>Agent Lab</h1>
+            <p>HermHerm</p>
+            <h1>Local AI</h1>
           </div>
         </div>
 
-        <button
-          className="new-run-button"
-          type="button"
-          onClick={() => void runScenario(scenarios[0])}
-        >
-          <Plus size={16} />
-          New run
+        <button className="new-chat-button" type="button" onClick={newChat}>
+          <MessageSquarePlus size={16} />
+          New chat
         </button>
 
-        <button
-          className="secondary-run-button"
-          type="button"
-          disabled={isBootstrapping}
-          onClick={() => void bootstrapHermes()}
-        >
-          <TerminalSquare size={16} />
-          {isBootstrapping ? "Starting Hermes" : "Connect Hermes"}
-        </button>
-
-        <nav className="nav-list">
-          {navItems.map((item) => (
-            <button
-              className={item.active ? "active" : ""}
-              key={item.label}
-              type="button"
-            >
-              <item.icon size={17} />
-              {item.label}
-            </button>
-          ))}
-        </nav>
-
-        <section className="rail-section">
-          <div className="section-heading">
-            <span>Starter tasks</span>
-          </div>
-          <div className="starter-list">
-            {scenarios.map((scenario) => (
-              <button
-                className={
-                  scenario.id === activeScenario.id
-                    ? "starter active"
-                    : "starter"
-                }
-                key={scenario.id}
-                type="button"
-                onClick={() => void runScenario(scenario)}
-              >
-                <span>{scenario.title}</span>
-                <ChevronRight size={15} />
-              </button>
-            ))}
+        <section className="runtime-card">
+          <div className={runtimeReady ? "runtime-dot ready" : "runtime-dot"} />
+          <div>
+            <strong>{runtimeLabel}</strong>
+            <span>{detailLabel}</span>
           </div>
         </section>
 
+        <section className="starter-section">
+          <p className="section-label">Starter tasks</p>
+          {starterTasks.map((task) => (
+            <button
+              className="starter-task"
+              disabled={isSending}
+              key={task.title}
+              onClick={() => void sendPrompt(task.prompt)}
+              type="button"
+            >
+              {task.title}
+            </button>
+          ))}
+        </section>
+
         <div className="rail-footer">
-          {hermesAvailable ? <ShieldCheck size={16} /> : <KeyRound size={16} />}
+          <HardDrive size={15} />
           <span>
-            {hermesAvailable
-              ? "Live Hermes mode: prompts go through the local API."
-              : "Demo fallback is safe; connect Hermes for real runs."}
+            Uses the isolated <strong>hermherm</strong> WSL profile and app model
+            store. Your default Hermes/Discord setup stays separate.
           </span>
         </div>
       </aside>
 
-      <section className="run-pane" aria-label="Run timeline">
+      <section className="chat-pane" aria-label="Chat">
         <header className="top-bar">
           <div>
-            <p className="eyebrow">Windows desktop agent</p>
-            <h2>
-              {hermesAvailable
-                ? "Hermes is live. Ask it something real."
-                : "Connect Hermes or explore the safe demo."}
-            </h2>
+            <p className="eyebrow">{platformLabel} desktop</p>
+            <h2>Ask the local assistant</h2>
           </div>
-          <div className="top-actions">
-            <span
-              className={`status-pill ${hermesAvailable ? "connected" : "offline"}`}
-            >
-              {hermesAvailable ? <Bot size={15} /> : <MonitorUp size={15} />}
-              {connectionLabel}
+          <div className="status-cluster">
+            <span className={runtimeReady ? "status-pill ready" : "status-pill"}>
+              {runtimeReady ? <CheckCircle2 size={15} /> : <WifiOff size={15} />}
+              {runtimeReady ? "Ready" : isStarting ? "Starting" : "Offline"}
             </span>
-            <span className="status-pill">
-              <MonitorUp size={15} />
-              {platformLabel}
+            <span className="status-pill quiet">
+              <Moon size={15} />
+              Dark mode
             </span>
-            <button
-              className="icon-button"
-              type="button"
-              aria-label="Open output panel"
-            >
-              <PanelRight size={18} />
-            </button>
           </div>
         </header>
 
-        <div className="suggestion-strip" aria-label="Suggested tasks">
-          {scenarios.map((scenario) => (
-            <button
-              className="suggestion"
-              key={scenario.id}
-              type="button"
-              onClick={() => void runScenario(scenario)}
-            >
-              <span>{scenario.title}</span>
-              <small>{scenario.kicker}</small>
-            </button>
-          ))}
-        </div>
+        <div className="timeline" ref={timelineRef}>
+          {startupNote ? (
+            <div className="startup-note">
+              {isStarting ? <Loader2 size={15} /> : <CheckCircle2 size={15} />}
+              <span>{startupNote}</span>
+            </div>
+          ) : null}
 
-        <div className="timeline">
           {messages.map((message) => (
             <article
-              className={`message ${message.role} ${message.tone ?? ""}`}
+              className={`message ${message.role} ${message.pending ? "pending" : ""}`}
               key={message.id}
             >
               <div className="avatar">
-                {message.role === "assistant" ? (
-                  <Bot size={16} />
-                ) : (
-                  <span>A</span>
-                )}
+                {message.role === "assistant" ? <Bot size={16} /> : "A"}
               </div>
               <div className="message-body">
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   rehypePlugins={[rehypeHighlight]}
                 >
-                  {message.content || "Working..."}
+                  {message.content}
                 </ReactMarkdown>
               </div>
             </article>
           ))}
         </div>
 
-        <section className="tool-trace" aria-label="Tool trace">
-          <div className="section-heading">
-            <span>Run trace</span>
-            <span>{isRunning ? "Running" : "Ready"}</span>
-          </div>
-          <div className="tool-list">
-            {toolSteps.map((step) => (
-              <ToolRow key={step.id} step={step} />
-            ))}
-          </div>
-        </section>
-
         <form className="composer" onSubmit={handleSubmit}>
-          <div className="composer-tools" aria-label="Composer tools">
-            <button type="button" aria-label="Attach file">
-              <FolderOpen size={16} />
-            </button>
-            <button type="button" aria-label="Capture screen">
-              <MonitorUp size={16} />
-            </button>
-            <button type="button" aria-label="Voice input">
-              <Mic size={16} />
-            </button>
-            <span className="mode-chip">
-              <LockKeyhole size={14} />
-              Safe demo
-            </span>
-          </div>
           <textarea
             aria-label="Message"
+            disabled={isSending}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={handleComposerKeyDown}
-            placeholder="Ask the playground to draft, inspect, compare, or plan..."
+            placeholder={
+              runtimeReady
+                ? "Ask something..."
+                : isStarting
+                  ? "Local runtime is starting..."
+                  : "Ask something; I will start the local runtime if needed..."
+            }
             rows={2}
             value={input}
           />
           <button
             className="send-button"
-            disabled={isRunning || !input.trim()}
+            disabled={isSending || !input.trim()}
             type="submit"
           >
-            <ArrowUp size={18} />
+            {isSending ? <Loader2 size={18} /> : <ArrowUp size={18} />}
           </button>
         </form>
       </section>
-
-      <aside className="right-pane" aria-label="Output and inspector">
-        <section className="artifact-panel">
-          <div className="panel-heading">
-            <div>
-              <p className="eyebrow">Output studio</p>
-              <h2>{activeScenario.artifactTitle}</h2>
-            </div>
-            <span>{activeScenario.artifactKind}</span>
-          </div>
-
-          <div className="chart-block">
-            <ResponsiveContainer width="100%" height={190}>
-              <AreaChart
-                data={activeScenario.chart}
-                margin={{ top: 12, right: 12, left: -16, bottom: 0 }}
-              >
-                <defs>
-                  <linearGradient
-                    id="valueGradient"
-                    x1="0"
-                    x2="0"
-                    y1="0"
-                    y2="1"
-                  >
-                    <stop offset="5%" stopColor="#2c7a73" stopOpacity={0.36} />
-                    <stop offset="95%" stopColor="#2c7a73" stopOpacity={0.02} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid
-                  stroke="#e3e7ec"
-                  strokeDasharray="4 4"
-                  vertical={false}
-                />
-                <XAxis
-                  dataKey="label"
-                  tickLine={false}
-                  axisLine={false}
-                  tick={{ fontSize: 11 }}
-                />
-                <YAxis hide domain={[0, 100]} />
-                <Tooltip
-                  contentStyle={{
-                    border: "1px solid #d9dee7",
-                    borderRadius: 8,
-                    boxShadow: "0 18px 42px rgba(15, 23, 42, 0.12)",
-                  }}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="value"
-                  stroke="#2c7a73"
-                  strokeWidth={2}
-                  fill="url(#valueGradient)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div className="artifact-list">
-            {activeScenario.bullets.map((bullet) => (
-              <div className="artifact-row" key={bullet}>
-                <Check size={16} />
-                <span>{bullet}</span>
-              </div>
-            ))}
-          </div>
-
-          <div className="artifact-actions">
-            <button type="button">
-              <Copy size={15} />
-              Copy
-            </button>
-            <button type="button">
-              <FileText size={15} />
-              Open as doc
-            </button>
-          </div>
-        </section>
-
-        <section className="inspector-panel">
-          <div className="panel-heading compact">
-            <div>
-              <p className="eyebrow">Run boundaries</p>
-              <h2>What can it touch?</h2>
-            </div>
-            <Gauge size={18} />
-          </div>
-          <div className="inspector-list">
-            {runtimeRows.map((row) => (
-              <div className="inspector-row" key={row.label}>
-                <row.icon size={16} />
-                <span>{row.label}</span>
-                <strong className={row.good ? "good" : ""}>{row.value}</strong>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="inspector-panel">
-          <div className="panel-heading compact">
-            <div>
-              <p className="eyebrow">Coming up</p>
-              <h2>Build track</h2>
-            </div>
-            <Clock3 size={18} />
-          </div>
-          <div className="roadmap-list">
-            {roadmap.map((item, index) => (
-              <div className="roadmap-item" key={item}>
-                <span>{index + 1}</span>
-                {item}
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className={`key-panel ${hermesAvailable ? "connected" : ""}`}>
-          {hermesAvailable ? <Bot size={17} /> : <KeyRound size={17} />}
-          <span>
-            {hermesAvailable
-              ? `Connected to ${hermesStatus?.url ?? "Hermes"} through Electron's local bridge.`
-              : `Hermes API is not reachable yet${hermesStatus?.error ? `: ${hermesStatus.error}` : "."}`}
-          </span>
-        </section>
-      </aside>
     </main>
   );
 }
-
-function ToolRow({ step }: { step: ToolStep }) {
-  const Icon = toolIcons[step.icon];
-  const statusIcon =
-    step.status === "done" ? (
-      <Check size={14} />
-    ) : step.status === "running" ? (
-      <Play size={14} />
-    ) : (
-      <X size={14} />
-    );
-
-  return (
-    <div className={`tool-row ${step.status}`}>
-      <div className="tool-icon">
-        <Icon size={16} />
-      </div>
-      <div>
-        <strong>{step.label}</strong>
-        <span>{step.detail}</span>
-      </div>
-      <div className="tool-status">{statusIcon}</div>
-    </div>
-  );
-}
-
-const toolIcons = {
-  search: Search,
-  file: FileText,
-  terminal: Code2,
-  chart: Layers3,
-} satisfies Record<ToolStep["icon"], typeof Search>;
 
 export default App;

@@ -1,26 +1,24 @@
 # HermHerm
 
-HermHerm is the first desktop playground for the consumer agent app we discussed. This build is intentionally simple to run on Windows: it uses Electron + React right now so you can test the product shape without installing Rust, Visual Studio Build Tools, Hermes, Ollama, or a local model.
+HermHerm is a Windows desktop app for testing a calm local AI assistant surface. It is intentionally dark, simple, and chat-first: a left rail with starter tasks, one main conversation, and no demo inspector column.
 
-The production shell can still move to Tauri later. The current goal is to make the interface and testing loop real first.
+This build keeps your existing Hermes setup separate. The app uses a dedicated WSL Hermes profile named `hermherm`, a separate API port (`8643`), and a separate Ollama model directory under:
+
+```text
+~/.hermes/profiles/hermherm/ollama-models
+```
+
+Your default Hermes profile and Discord gateway stay on their own profile.
 
 ## What This Build Does
 
-- Runs as a Windows desktop app.
-- Shows a polished three-pane agent workspace: navigation, run timeline, tool trace, output studio, and safety inspector.
-- Connects to a real Hermes Agent API server at `http://127.0.0.1:8642` when available.
-- Falls back to simulated demo output when Hermes is offline.
-- Includes starter playground tasks for research, tool debugging, and local-mode planning.
-- Builds a Windows installer through Electron Builder.
-- Adds GitHub Actions for Windows and macOS artifacts.
-
-## What This Build Does Not Do Yet
-
-- It does not bundle Hermes Agent yet.
-- It does not bundle Ollama or a local model yet.
-- It does not manage Hermes permissions yet; real runs use your existing Hermes configuration.
-- It does not install Ollama or download a local model.
-- It is not code-signed yet, so Windows SmartScreen can warn on packaged builds.
+- Runs as a Windows desktop app through Electron + React.
+- Uses dark mode by default.
+- Starts/checks an isolated Hermes profile on `http://127.0.0.1:8643`.
+- Uses app-owned Ollama local chat on `http://127.0.0.1:11434`.
+- Downloads/uses `llama3.2:3b` in the `hermherm` profile model store.
+- Keeps starter tasks clickable and removes the old dead navigation buttons.
+- Builds a Windows portable app or installer.
 
 ## Easiest Windows Test
 
@@ -30,76 +28,73 @@ Double-click:
 start-windows.bat
 ```
 
-That script checks for Node, installs dependencies if needed, and starts the desktop app.
+That checks for Node, installs dependencies if needed, and starts the desktop app. On first launch, the app will try to start the isolated local runtime automatically.
 
-If Hermes is already installed in WSL, double-click this once before testing live mode:
+For a more explicit setup step, double-click this first:
 
 ```text
-connect-hermes-wsl.bat
+setup-local-hermes-wsl.bat
 ```
 
-That enables Hermes' local API server on `127.0.0.1:8642`, restarts the Hermes gateway, and checks `/health` plus `/v1/models`.
+The older `connect-hermes-wsl.bat` still exists, but it now does the same isolated setup. It no longer edits `~/.hermes/.env` for your default profile.
 
-If you prefer PowerShell:
+## Requirements
+
+- Windows with WSL Ubuntu available.
+- Hermes already installed inside WSL at `~/.local/bin/hermes`.
+- Node.js LTS on Windows for development.
+
+The setup script installs a user-local Ollama binary under `~/.local/ollama` if it is missing. It does not require Windows admin rights.
+
+## PowerShell Commands
+
+Use `npm.cmd` instead of `npm` if PowerShell blocks `npm.ps1`.
 
 ```powershell
 npm.cmd install
+npm.cmd run hermes:wsl
 npm.cmd run app:dev
 ```
 
-Use `npm.cmd` instead of `npm` if PowerShell blocks `npm.ps1` on your machine.
-
-## Live Hermes Mode
-
-The app talks to Hermes through Electron's main process, not directly from the browser UI. That avoids CORS issues and keeps the renderer simpler.
-
-Expected local settings:
+## Runtime Ports
 
 ```text
-HERMES_URL=http://127.0.0.1:8642
-HERMES_API_KEY=hermherm-local-dev
+HermHerm Hermes profile: hermherm
+HermHerm Hermes API:     http://127.0.0.1:8643
+HermHerm API key:        hermherm-local-dev
+HermHerm Ollama:         http://127.0.0.1:11434
+Default local model:     llama3.2:3b
 ```
 
-The WSL connector writes matching values into `~/.hermes/.env`:
+The app currently chats through the app-owned Ollama endpoint for responsiveness. The isolated Hermes API is still started and health-checked so the app runtime is separate from your default Hermes/Discord setup.
+
+## Build A Windows App
+
+For the easiest local packaged test:
+
+```powershell
+npm.cmd run app:portable
+```
+
+Open:
 
 ```text
-API_SERVER_ENABLED=true
-API_SERVER_HOST=127.0.0.1
-API_SERVER_PORT=8642
-API_SERVER_KEY=hermherm-local-dev
+release\portable\HermHerm-win32-x64\HermHerm.exe
 ```
 
-Then it restarts `hermes gateway`.
-
-## Build A Windows Installer
+For a normal installer:
 
 ```powershell
 npm.cmd run app:dist
 ```
 
-The installer will appear in:
+The installer appears in:
 
 ```text
-release/
+release\
 ```
 
-For a quick unpacked desktop build:
-
-```powershell
-npm.cmd run app:portable
-```
-
-That creates a folder under `release/portable/`. Open the generated `HermHerm.exe` inside it.
-
-`npm.cmd run app:dist` uses Electron Builder to make a familiar installer. On some Windows machines, Electron Builder may need Developer Mode or symlink privileges because one of its signing helper downloads contains symlinks. `app:portable` avoids that and is the easier local test path.
-
-To smoke-test the packaged app against live Hermes:
-
-```powershell
-npm.cmd run hermes:wsl
-npm.cmd run app:portable
-npm.cmd run smoke:live
-```
+Unsigned Windows builds may show SmartScreen warnings.
 
 ## Health Check
 
@@ -123,23 +118,3 @@ You cannot fully test a real Mac app from Windows alone. The practical options a
 3. Use a Mac cloud provider like MacStadium or AWS EC2 Mac.
 
 GitHub Actions is good for packaging. A real Mac is still needed to test first launch, DMG behavior, Gatekeeper, notarization, sidecars, and the feel of the app.
-
-## Why Electron First?
-
-The planned production direction is Tauri v2, but Tauri development on Windows requires Rust, MSVC C++ Build Tools, and WebView2 readiness. This machine currently has Node and Git, so Electron gives us a working desktop playground immediately.
-
-When we move to Tauri, the likely prerequisites are:
-
-- Rust via rustup
-- Visual Studio Build Tools with Desktop development with C++
-- Node.js LTS
-- WebView2 Runtime
-
-## Near-Term Roadmap
-
-1. Wire the UI to a real streaming model provider.
-2. Add provider settings and local encrypted key storage.
-3. Add a Hermes API server health check.
-4. Add a Tauri shell once Windows prerequisites are installed.
-5. Add CI release drafts with downloadable installers.
-6. Add local-mode experiments: Hermes sidecar, Ollama detection, and model download UX.

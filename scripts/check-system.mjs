@@ -33,12 +33,12 @@ for (const [label, command, args] of checks) {
 }
 
 console.log("");
-console.log("For this Electron playground, Git + Node + npm are enough.");
+console.log("For HermHerm app development, Git + Node + npm are enough.");
 console.log(
-  "For live Hermes mode on Windows, WSL Ubuntu must have Hermes installed.",
+  "For local runtime mode on Windows, WSL Ubuntu must have Hermes installed.",
 );
 console.log(
-  "For the later Tauri app, install Rust and Visual Studio C++ Build Tools.",
+  "Run npm.cmd run hermes:wsl to prepare the isolated hermherm profile.",
 );
 
 if (failed) {

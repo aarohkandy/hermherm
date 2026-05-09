@@ -1,0 +1,58 @@
+name: Desktop Builds
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build web app
+        run: npm run build
+
+      - name: Build Windows portable artifact
+        if: runner.os == 'Windows'
+        run: npm run app:portable
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Build macOS desktop artifact
+        if: runner.os == 'macOS'
+        run: npm run app:dist
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: HermHerm-${{ matrix.os }}
+          path: |
+            release/**
+            !release/**/*.blockmap

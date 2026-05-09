@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="HermHerm">
+  <rect width="64" height="64" rx="14" fill="#111827" />
+  <path
+    d="M33 10l3.8 12.6L50 27l-13.2 4.4L33 44l-3.8-12.6L16 27l13.2-4.4L33 10z"
+    fill="#ffffff"
+  />
+  <path
+    d="M17 38l2.2 7.1L26 47.5l-6.8 2.4L17 57l-2.2-7.1L8 47.5l6.8-2.4L17 38z"
+    fill="#2c7a73"
+  />
+</svg>

@@ -1,0 +1,92 @@
+{
+  "name": "hermherm",
+  "private": true,
+  "version": "0.1.0",
+  "description": "A first-pass desktop playground for a polished consumer agent app.",
+  "author": "HermHerm",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "electron:dev": "wait-on tcp:5173 && cross-env NODE_ENV=development electron .",
+    "app:dev": "concurrently -k -n VITE,ELECTRON -c cyan,magenta \"npm:dev\" \"npm:electron:dev\"",
+    "start": "npm run app:dev",
+    "build": "tsc -b && vite build",
+    "app:pack": "npm run build && electron-builder --dir",
+    "app:portable": "npm run build && node scripts/package-portable.mjs",
+    "app:dist": "npm run build && electron-builder",
+    "check:system": "node scripts/check-system.mjs",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "preview": "vite preview --host 127.0.0.1"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.14.0",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "react-markdown": "^10.1.0",
+    "recharts": "^3.8.1",
+    "rehype-highlight": "^7.0.2",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.0.0",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.12.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^42.0.1",
+    "electron-builder": "^26.8.1",
+    "eslint": "^10.2.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "eslint-plugin-react-x": "^5.7.5",
+    "globals": "^17.5.0",
+    "prettier": "^3.8.3",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8.58.2",
+    "vite": "^8.0.10",
+    "wait-on": "^9.0.5"
+  },
+  "build": {
+    "appId": "com.hermherm.playground",
+    "productName": "HermHerm",
+    "asar": true,
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "identity": null
+    }
+  }
+}

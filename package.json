@@ -14,7 +14,7 @@
     "build": "tsc -b && vite build",
     "app:pack": "npm run build && electron-builder --dir",
     "app:portable": "npm run build && node scripts/package-portable.mjs",
-    "app:dist": "npm run build && electron-builder",
+    "app:dist": "npm run build && electron-builder --publish never",
     "check:system": "node scripts/check-system.mjs",
     "lint": "eslint .",
     "format": "prettier --write .",

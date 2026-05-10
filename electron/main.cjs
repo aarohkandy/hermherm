@@ -10,9 +10,9 @@ const HERMES_PROFILE = process.env.HERMES_PROFILE || "hermherm";
 const HERMES_URL = process.env.HERMES_URL || "http://127.0.0.1:8643";
 const HERMES_API_KEY = process.env.HERMES_API_KEY || "hermherm-local-dev";
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://127.0.0.1:11434";
-const LOCAL_MODEL = process.env.HERMHERM_LOCAL_MODEL || "llama3.2:3b";
+const LOCAL_MODEL = process.env.HERMHERM_LOCAL_MODEL || "gemma3:4b";
 const LOCAL_CHAT_TIMEOUT_MS = Number(
-  process.env.HERMHERM_CHAT_TIMEOUT_MS || 180_000,
+  process.env.HERMHERM_CHAT_TIMEOUT_MS || 600_000,
 );
 
 function hermesHeaders(extra = {}) {

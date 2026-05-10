@@ -14,7 +14,7 @@ set -euo pipefail
 export PATH="$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 PROFILE="hermherm"
-MODEL="${HERMHERM_LOCAL_MODEL:-llama3.2:3b}"
+MODEL="${HERMHERM_LOCAL_MODEL:-gemma3:4b}"
 PROFILE_DIR="$HOME/.hermes/profiles/$PROFILE"
 HERMES_BIN="$HOME/.local/bin/hermes"
 OLLAMA_ROOT="$HOME/.local/ollama"

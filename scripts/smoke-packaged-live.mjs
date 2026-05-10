@@ -123,7 +123,7 @@ try {
     document.querySelector('.send-button').click();
   })()`);
 
-  for (let attempt = 0; attempt < 240; attempt += 1) {
+  for (let attempt = 0; attempt < 600; attempt += 1) {
     const body = await evalJs("document.body.innerText");
     if (body.includes("I could not get a local response yet")) {
       throw new Error(body);

@@ -16,7 +16,7 @@ Your default Hermes profile and Discord gateway stay on their own profile.
 - Uses dark mode by default.
 - Starts/checks an isolated Hermes profile on `http://127.0.0.1:8643`.
 - Uses app-owned Ollama local chat on `http://127.0.0.1:11434`.
-- Downloads/uses `llama3.2:3b` in the `hermherm` profile model store.
+- Downloads/uses `gemma3:4b` in the `hermherm` profile model store.
 - Keeps starter tasks clickable and removes the old dead navigation buttons.
 - Builds a Windows portable app or installer.
 
@@ -63,7 +63,7 @@ HermHerm Hermes profile: hermherm
 HermHerm Hermes API:     http://127.0.0.1:8643
 HermHerm API key:        hermherm-local-dev
 HermHerm Ollama:         http://127.0.0.1:11434
-Default local model:     llama3.2:3b
+Default local model:     gemma3:4b
 ```
 
 The app currently chats through the app-owned Ollama endpoint for responsiveness. The isolated Hermes API is still started and health-checked so the app runtime is separate from your default Hermes/Discord setup.

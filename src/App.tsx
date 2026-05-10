@@ -16,6 +16,8 @@ import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
 import "./App.css";
 
+const defaultLocalModel = "gemma3:4b";
+
 type Role = "assistant" | "user";
 
 type Message = {
@@ -61,7 +63,7 @@ const browserClient = {
       ok: false,
       url: "http://127.0.0.1:8643",
       profile: "hermherm",
-      model: "llama3.2:3b",
+      model: defaultLocalModel,
       error: "Open the desktop app to use the local runtime.",
     };
   },
@@ -134,7 +136,7 @@ function App() {
             ok: false,
             url: "http://127.0.0.1:8643",
             profile: "hermherm",
-            model: "llama3.2:3b",
+            model: defaultLocalModel,
             error: error instanceof Error ? error.message : String(error),
           });
           setStartupNote("Local runtime could not start automatically.");

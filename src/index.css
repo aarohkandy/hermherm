@@ -1,14 +1,16 @@
 :root {
-  --bg: #080b10;
-  --shell: #0c1118;
-  --canvas: #0a0f15;
-  --panel: #111821;
-  --hover: #172331;
-  --line: #1d2a38;
-  --strong: #f4f7fb;
-  --text: #c3ced9;
-  --muted: #7e8b99;
-  --accent: #54d6c3;
+  --bg: #f3eadc;
+  --panel: #fffaf1;
+  --line: #deceb6;
+  --line-strong: #c6ae8c;
+  --ink: #2c2117;
+  --text: #5d4e40;
+  --muted: #8b7864;
+  --accent: #8c6130;
+  --green: #407658;
+  --amber: #a86d24;
+  --danger: #a24f37;
+  --soft-shadow: 0 18px 48px rgba(82, 58, 34, 0.1);
   --mono:
     "Cascadia Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-family:
@@ -54,11 +56,11 @@ textarea {
 
 button:focus-visible,
 textarea:focus-visible {
-  outline: 2px solid rgba(84, 214, 195, 0.48);
+  outline: 2px solid rgba(137, 95, 50, 0.42);
   outline-offset: 2px;
 }
 
 ::selection {
-  color: #041716;
+  color: #fffaf1;
   background: var(--accent);
 }

@@ -2,6 +2,10 @@ const { app, BrowserWindow, ipcMain, shell } = require("electron");
 const { execFile } = require("node:child_process");
 const path = require("node:path");
 const { promisify } = require("node:util");
+const {
+  callVisualTool,
+  tools: visualMcpTools,
+} = require("./visual-mcp-server.cjs");
 
 const isDev = process.env.NODE_ENV === "development";
 const execFileAsync = promisify(execFile);
@@ -14,6 +18,8 @@ const LOCAL_MODEL = process.env.HERMHERM_LOCAL_MODEL || "gemma3:4b";
 const LOCAL_CHAT_TIMEOUT_MS = Number(
   process.env.HERMHERM_CHAT_TIMEOUT_MS || 600_000,
 );
+const VISUAL_MCP_SERVER = "hermherm-visuals";
+const CHAT_MODES = new Set(["ask", "build", "analyze"]);
 
 function hermesHeaders(extra = {}) {
   return {
@@ -104,6 +110,11 @@ async function getHermesStatus() {
     ollamaUrl: OLLAMA_URL,
     hermes: { ok: false },
     ollama: { ok: false },
+    visualMcp: {
+      ok: true,
+      server: VISUAL_MCP_SERVER,
+      tools: visualMcpTools.map((tool) => tool.name),
+    },
   };
 
   try {
@@ -118,7 +129,8 @@ async function getHermesStatus() {
     }
     status.hermes.ok = health.status === "fulfilled";
   } catch (error) {
-    status.hermes.error = error instanceof Error ? error.message : String(error);
+    status.hermes.error =
+      error instanceof Error ? error.message : String(error);
   }
 
   try {
@@ -143,7 +155,9 @@ async function getHermesStatus() {
   if (!status.ok) {
     status.error = status.ollama.ok
       ? `${LOCAL_MODEL} is not downloaded in the HermHerm model store yet.`
-      : status.ollama.error || status.hermes.error || "Local runtime is not ready.";
+      : status.ollama.error ||
+        status.hermes.error ||
+        "Local runtime is not ready.";
   }
 
   return status;
@@ -282,6 +296,10 @@ echo "HermHerm local runtime is ready."
 }
 
 ipcMain.handle("hermes:status", async () => getHermesStatus());
+ipcMain.handle("visuals:tools", async () => ({
+  server: VISUAL_MCP_SERVER,
+  tools: visualMcpTools,
+}));
 
 ipcMain.handle("hermes:bootstrap-wsl", async () => {
   const output = await bootstrapHermhermInWsl();
@@ -292,14 +310,16 @@ ipcMain.handle("hermes:bootstrap-wsl", async () => {
 ipcMain.handle("hermes:chat", async (_event, payload) => {
   const content = String(payload?.content ?? "").trim();
   const history = Array.isArray(payload?.history) ? payload.history : [];
+  const mode = CHAT_MODES.has(payload?.mode) ? payload.mode : "ask";
 
   if (!content) {
     throw new Error("Message is empty.");
   }
 
-  const status = await getHermesStatus();
+  let status = await getHermesStatus();
   if (!status.ok) {
     await bootstrapHermhermInWsl();
+    status = await getHermesStatus();
   }
 
   const recentHistory = history
@@ -322,8 +342,17 @@ ipcMain.handle("hermes:chat", async (_event, payload) => {
     messages: [
       {
         role: "system",
-        content:
-          "You are HermHerm, a private local desktop assistant running on this Windows computer. Be clear, practical, and concise. You are using the isolated hermherm runtime, not the user's default Hermes setup.",
+        content: [
+          "You are HermHerm, a private local desktop assistant running on this Windows computer.",
+          "You are using the isolated hermherm runtime, not the user's default Hermes setup.",
+          "Write in clear sections with concrete points so the desktop app can turn your answer into visual cards.",
+          "Do not end with a follow-up question unless the user explicitly asks for options.",
+          mode === "build"
+            ? "Mode: Build. Prioritize steps, decisions, sequence, and implementation details."
+            : mode === "analyze"
+              ? "Mode: Analyze. Prioritize signals, tradeoffs, risks, and what to watch next."
+              : "Mode: Ask. Prioritize direct synthesis and useful takeaways.",
+        ].join(" "),
       },
       ...recentHistory,
       { role: "user", content },
@@ -352,6 +381,21 @@ ipcMain.handle("hermes:chat", async (_event, payload) => {
         : undefined,
     },
     raw: result,
+    mode,
+    visual: callVisualTool("compose_visual_response", {
+      prompt: content,
+      response: result?.message?.content ?? "",
+      mode,
+      model: LOCAL_MODEL,
+      runtimeReady: status.ok,
+      durationMs: result?.total_duration
+        ? Math.round(result.total_duration / 1_000_000)
+        : undefined,
+    }),
+    visualMcp: {
+      server: VISUAL_MCP_SERVER,
+      tools: ["compose_visual_response"],
+    },
   };
 });
 
@@ -361,7 +405,7 @@ function createWindow() {
     height: 860,
     minWidth: 980,
     minHeight: 680,
-    backgroundColor: "#080b10",
+    backgroundColor: "#f3eadc",
     title: "HermHerm",
     show: false,
     webPreferences: {

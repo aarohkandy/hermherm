@@ -13,4 +13,7 @@ contextBridge.exposeInMainWorld("hermherm", {
     bootstrapWsl: () => ipcRenderer.invoke("hermes:bootstrap-wsl"),
     chat: (payload) => ipcRenderer.invoke("hermes:chat", payload),
   },
+  visuals: {
+    tools: () => ipcRenderer.invoke("visuals:tools"),
+  },
 });

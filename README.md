@@ -1,6 +1,6 @@
 # HermHerm
 
-HermHerm is a Windows desktop app for testing a calm local AI assistant surface. It is intentionally dark, simple, and chat-first: a left rail with starter tasks, one main conversation, and no demo inspector column.
+HermHerm is a Windows desktop app for testing a calm local AI assistant surface. It now uses a beige command-interface layout: a central animated core, local runtime readouts, Ask/Build/Analyze modes, and a visual artifact canvas instead of a normal chat timeline.
 
 This build keeps your existing Hermes setup separate. The app uses a dedicated WSL Hermes profile named `hermherm`, a separate API port (`8643`), and a separate Ollama model directory under:
 
@@ -13,11 +13,12 @@ Your default Hermes profile and Discord gateway stay on their own profile.
 ## What This Build Does
 
 - Runs as a Windows desktop app through Electron + React.
-- Uses dark mode by default.
+- Uses a clean beige command surface by default.
 - Starts/checks an isolated Hermes profile on `http://127.0.0.1:8643`.
 - Uses app-owned Ollama local chat on `http://127.0.0.1:11434`.
 - Downloads/uses `gemma3:4b` in the `hermherm` profile model store.
-- Keeps starter tasks clickable and removes the old dead navigation buttons.
+- Removes starter tasks; the app opens directly to a command input.
+- Runs a local `hermherm-visuals` MCP-style server that turns local model replies into visual cards, metrics, and task maps.
 - Builds a Windows portable app or installer.
 
 ## Easiest Windows Test
@@ -67,6 +68,16 @@ Default local model:     gemma3:4b
 ```
 
 The app currently chats through the app-owned Ollama endpoint for responsiveness. The isolated Hermes API is still started and health-checked so the app runtime is separate from your default Hermes/Discord setup.
+
+## Visual MCP Server
+
+The visual layer lives in:
+
+```text
+electron\visual-mcp-server.cjs
+```
+
+It exposes MCP-style stdio methods including `tools/list` and `tools/call`. The desktop app calls `compose_visual_response` after each local Gemma response, then renders the returned structure as visual cards, runtime metrics, and a task map.
 
 ## Build A Windows App
 

@@ -125,10 +125,15 @@ try {
 
   for (let attempt = 0; attempt < 600; attempt += 1) {
     const body = await evalJs("document.body.innerText");
+    const normalizedBody = body.toLowerCase();
     if (body.includes("I could not get a local response yet")) {
       throw new Error(body);
     }
-    if (body.includes("Local response via")) {
+    if (
+      normalizedBody.includes("local response via") &&
+      normalizedBody.includes("task map") &&
+      normalizedBody.includes("visual mcp")
+    ) {
       console.log("Packaged local runtime smoke test passed.");
       await cleanup();
       process.exit(0);

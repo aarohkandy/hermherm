@@ -2,7 +2,7 @@
   "name": "hermherm",
   "private": true,
   "version": "0.1.0",
-  "description": "A dark Windows desktop app for an isolated local HermHerm runtime.",
+  "description": "A beige visual command app for an isolated local HermHerm runtime.",
   "author": "HermHerm",
   "type": "module",
   "main": "electron/main.cjs",

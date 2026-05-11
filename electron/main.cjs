@@ -187,6 +187,36 @@ function parseDeepPullProgress(logText) {
   return null;
 }
 
+function parseDeepPullError(logText) {
+  const clean = stripAnsi(logText).replace(/\r/g, "\n");
+  const lines = clean
+    .split("\n")
+    .map((line) => line.trim().replace(/\s+/g, " "))
+    .filter(Boolean);
+
+  const errorLine = [...lines]
+    .reverse()
+    .find((line) =>
+      /(^|\b)(error:|failed|i\/o timeout|connection timed out|timed out|not found|unauthorized)/i.test(
+        line,
+      ),
+    );
+
+  return errorLine ?? null;
+}
+
+function progressForDeepError(message) {
+  if (/timeout|timed out/i.test(message)) {
+    return { percent: 0, label: "Registry timed out" };
+  }
+
+  if (/not found|manifest/i.test(message)) {
+    return { percent: 0, label: "Model manifest unavailable" };
+  }
+
+  return { percent: 0, label: "Download failed" };
+}
+
 function safeJsonParse(text) {
   try {
     return JSON.parse(text);
@@ -506,10 +536,14 @@ echo "deep-stopped"`,
           },
       };
     } else if (output.includes("deep-error")) {
+      const message =
+        parseDeepPullError(output) ??
+        output.replace("deep-error", "").trim() ??
+        "Download failed.";
       deepPullState = {
         state: "error",
-        error: output.replace("deep-error", "").trim() || "Download failed.",
-        progress: { percent: 0, label: "Retrying download" },
+        error: message,
+        progress: progressForDeepError(message),
       };
     } else if (output.includes("deep-progress")) {
       deepPullState = {
@@ -589,11 +623,7 @@ async function getHermesStatus({ startDeepPull = true } = {}) {
     const models = Array.isArray(tags?.models) ? tags.models : [];
     const modelNames = models.map((model) => model.name).filter(Boolean);
 
-    if (
-      !modelNames.includes(DEEP_MODEL) &&
-      (deepPullState.state === "starting" ||
-        deepPullState.state === "downloading")
-    ) {
+    if (!modelNames.includes(DEEP_MODEL)) {
       await refreshDeepPullState();
     }
 
@@ -619,12 +649,18 @@ async function getHermesStatus({ startDeepPull = true } = {}) {
     };
   }
 
-  if (status.ok && !status.models.deep.ready && startDeepPull) {
+  if (
+    status.ok &&
+    !status.models.deep.ready &&
+    startDeepPull &&
+    deepPullState.state !== "error"
+  ) {
     status.models.deep.state = "downloading";
-    status.models.deep.progress = deepPullState.progress ?? {
-      percent: 3,
-      label: "Connecting to Ollama registry",
-    };
+    status.models.deep.progress = deepPullState.progress ??
+      status.models.deep.progress ?? {
+        percent: 3,
+        label: "Connecting to Ollama registry",
+      };
     void ensureDeepModelPull();
   }
 
@@ -909,6 +945,16 @@ ipcMain.handle("hermes:chat", async (_event, payload) =>
 ipcMain.handle("hermes:rerun-deep", async (_event, payload) =>
   runChatRequest(payload, { forceDeep: true }),
 );
+ipcMain.handle("hermes:retry-deep", async () => {
+  deepPullState = {
+    state: "idle",
+    error: null,
+    progress: null,
+  };
+  lastDeepPullProbeAt = 0;
+  await ensureDeepModelPull();
+  return getHermesStatus({ startDeepPull: false });
+});
 
 function createWindow() {
   const mainWindow = new BrowserWindow({

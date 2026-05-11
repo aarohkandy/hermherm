@@ -182,7 +182,7 @@ try {
       throw new Error(body);
     }
     if (
-      normalizedBody.includes("response") &&
+      normalizedBody.includes("output") &&
       normalizedBody.includes("fast qwen") &&
       normalizedBody.includes("run details")
     ) {

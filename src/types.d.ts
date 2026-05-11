@@ -23,6 +23,7 @@ declare global {
           mode?: HermHermMode;
           history?: Array<{ role: "assistant" | "user"; content: string }>;
         }) => Promise<HermesChatResult>;
+        retryDeepDownload: () => Promise<HermesStatus>;
       };
       visuals?: {
         tools: () => Promise<{

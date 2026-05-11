@@ -118,6 +118,9 @@ const browserClient = {
   async rerunDeep(): Promise<HermesChatResult> {
     throw new Error("Deep rerun is available in the desktop app.");
   },
+  async retryDeepDownload(): Promise<HermesStatus> {
+    throw new Error("Deep download retry is available in the desktop app.");
+  },
 };
 
 const createId = () => Math.random().toString(36).slice(2);
@@ -207,9 +210,12 @@ function App() {
     ? "Ready"
     : status?.models?.deep?.state === "downloading"
       ? "Downloading"
-      : "Waiting";
+      : status?.models?.deep?.state === "error"
+        ? "Needs retry"
+        : "Waiting";
   const deepProgress = status?.models?.deep?.progress;
   const deepPercent = clampPercent(deepProgress?.percent);
+  const deepError = status?.models?.deep?.error;
   const deepProgressLabel =
     deepProgress?.label ??
     (status?.models?.deep?.state === "downloading"
@@ -318,6 +324,52 @@ function App() {
   function newSession() {
     setExchanges([]);
     setInput("");
+  }
+
+  async function retryDeepDownload() {
+    setStatus((current) =>
+      current
+        ? {
+            ...current,
+            models: {
+              ...(current.models ?? {}),
+              deep: current.models?.deep
+                ? {
+                    ...current.models.deep,
+                    state: "downloading",
+                    error: null,
+                    progress: { percent: 0, label: "Retrying download" },
+                  }
+                : current.models?.deep,
+            },
+          }
+        : current,
+    );
+
+    try {
+      const nextStatus = await client.retryDeepDownload();
+      setStatus(nextStatus);
+    } catch (error) {
+      setStatus((current) =>
+        current
+          ? {
+              ...current,
+              models: {
+                ...(current.models ?? {}),
+                deep: current.models?.deep
+                  ? {
+                      ...current.models.deep,
+                      state: "error",
+                      error:
+                        error instanceof Error ? error.message : String(error),
+                      progress: { percent: 0, label: "Retry failed" },
+                    }
+                  : current.models?.deep,
+              },
+            }
+          : current,
+      );
+    }
   }
 
   async function sendPrompt(prompt: string) {
@@ -541,7 +593,9 @@ function App() {
               className={
                 status?.models?.deep?.state === "downloading"
                   ? "readout-row deep-readout is-downloading"
-                  : "readout-row deep-readout"
+                  : status?.models?.deep?.state === "error"
+                    ? "readout-row deep-readout is-error"
+                    : "readout-row deep-readout"
               }
             >
               <BrainCircuit size={17} />
@@ -566,6 +620,20 @@ function App() {
                         ? `${deepPercent}% - ${deepProgressLabel}`
                         : deepProgressLabel}
                     </small>
+                  </>
+                ) : null}
+                {status?.models?.deep?.state === "error" ? (
+                  <>
+                    <small title={deepError ?? undefined}>
+                      {deepError ?? "Gemma 4 download failed."}
+                    </small>
+                    <button
+                      className="inline-retry-button"
+                      onClick={retryDeepDownload}
+                      type="button"
+                    >
+                      Retry
+                    </button>
                   </>
                 ) : null}
               </div>
@@ -607,7 +675,7 @@ function App() {
           <div className="canvas-head">
             <div>
               <p className="eyebrow">{activeMode.label} mode</p>
-              <h2>{activeVisual ? "Response" : activeMode.noun}</h2>
+              <h2>{activeVisual ? "Output" : activeMode.noun}</h2>
               <span>{activeMode.hint}</span>
             </div>
             <span className="mcp-pill">
@@ -708,7 +776,7 @@ function VisualArtifact({
     <article className="visual-artifact">
       <section className="command-strip">
         <div>
-          <p className="eyebrow">You asked</p>
+          <p className="eyebrow">Input</p>
           <h3>{exchange?.prompt ?? visual.headline}</h3>
         </div>
         <div className="artifact-actions">

@@ -17,14 +17,20 @@ const exe = path.join(
 );
 
 try {
-  execFileSync("taskkill", ["/IM", "HermHerm.exe", "/F"], { stdio: "ignore" });
+  execFileSync("taskkill", ["/IM", "HermHerm.exe", "/T", "/F"], {
+    stdio: "ignore",
+  });
 } catch {
   // The app was not already running.
 }
 
-const child = spawn(exe, ["--remote-debugging-port=9333"], {
+const child = spawn(exe, ["--smoke-test", "--remote-debugging-port=9333"], {
   detached: false,
   stdio: "ignore",
+  env: {
+    ...process.env,
+    HERMHERM_SMOKE_TEST: "1",
+  },
 });
 
 async function getDebugPages() {
@@ -87,11 +93,40 @@ async function evalJs(expression) {
   return response.result.result.value;
 }
 
+async function clickSelector(selector) {
+  const result = await evalJs(`(() => {
+    const el = document.querySelector(${JSON.stringify(selector)});
+    if (!el) return false;
+    el.click();
+    return true;
+  })()`);
+  if (!result) throw new Error(`Missing clickable selector: ${selector}`);
+}
+
+async function fillComposer(text) {
+  const result = await evalJs(`(() => {
+    const el = document.querySelector('textarea');
+    if (!el) return false;
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+    setter.call(el, ${JSON.stringify(text)});
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`);
+  if (!result) throw new Error("Composer was not available.");
+}
+
+async function expectBodyIncludes(fragment) {
+  const body = await evalJs("document.body.innerText");
+  if (!body.toLowerCase().includes(fragment.toLowerCase())) {
+    throw new Error(`Expected body to include ${fragment}, saw:\n${body}`);
+  }
+}
+
 async function cleanup() {
   ws.close();
   child.kill();
   try {
-    execFileSync("taskkill", ["/IM", "HermHerm.exe", "/F"], {
+    execFileSync("taskkill", ["/IM", "HermHerm.exe", "/T", "/F"], {
       stdio: "ignore",
     });
   } catch {
@@ -99,15 +134,28 @@ async function cleanup() {
   }
 }
 
+process.once("exit", () => {
+  try {
+    execFileSync("taskkill", ["/IM", "HermHerm.exe", "/T", "/F"], {
+      stdio: "ignore",
+    });
+  } catch {
+    // Already stopped.
+  }
+});
+
 try {
   await send("Runtime.enable");
   await delay(6000);
 
   for (let attempt = 0; attempt < 120; attempt += 1) {
     const body = await evalJs("document.body.innerText");
+    const normalizedBody = body.toLowerCase();
     if (
-      body.includes("Local runtime ready") &&
-      body.toLowerCase().includes("windows")
+      (body.includes("Local runtime ready") ||
+        body.includes("Fast Qwen is ready") ||
+        body.includes("Fast ready")) &&
+      normalizedBody.includes("windows")
     ) {
       break;
     }
@@ -115,25 +163,27 @@ try {
     await delay(1000);
   }
 
-  await evalJs(`(() => {
-    const el = document.querySelector('textarea');
-    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
-    setter.call(el, 'Write one short sentence saying the packaged local app works.');
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    document.querySelector('.send-button').click();
-  })()`);
+  await expectBodyIncludes("Signal idle");
+  await expectBodyIncludes("Awaiting impulse");
 
-  for (let attempt = 0; attempt < 600; attempt += 1) {
+  await fillComposer("hey");
+  await clickSelector(".send-button");
+
+  for (let attempt = 0; attempt < 240; attempt += 1) {
     const body = await evalJs("document.body.innerText");
     const normalizedBody = body.toLowerCase();
     if (body.includes("I could not get a local response yet")) {
       throw new Error(body);
     }
     if (
-      normalizedBody.includes("local response via") &&
-      normalizedBody.includes("task map") &&
-      normalizedBody.includes("visual mcp")
+      normalizedBody.includes("signal resolved") &&
+      normalizedBody.includes("fast qwen") &&
+      normalizedBody.includes("run details")
     ) {
+      await clickSelector(".detail-drawer summary");
+      await expectBodyIncludes("Route");
+      await clickSelector(".ghost-button");
+      await expectBodyIncludes("Awaiting impulse");
       console.log("Packaged local runtime smoke test passed.");
       await cleanup();
       process.exit(0);

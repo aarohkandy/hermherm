@@ -10,6 +10,12 @@ const tools = [
         response: { type: "string" },
         mode: { type: "string", enum: ["ask", "build", "analyze"] },
         model: { type: "string" },
+        selectedModel: { type: "string" },
+        selectedBrain: { type: "string", enum: ["fast", "deep"] },
+        brainLabel: { type: "string" },
+        router: { type: "object" },
+        canRerunDeep: { type: "boolean" },
+        deepReady: { type: "boolean" },
         runtimeReady: { type: "boolean" },
         durationMs: { type: "number" },
       },
@@ -65,7 +71,7 @@ function normalizeText(value) {
 
 function compactLine(line) {
   return line
-    .replace(/^[-*•]\s*/, "")
+    .replace(/^[-*]\s*/, "")
     .replace(/^\d+[.)]\s*/, "")
     .replace(/^#+\s*/, "")
     .trim();
@@ -113,24 +119,12 @@ function scoreForText(text) {
   return 94;
 }
 
-function createTimeline(response, mode = "ask") {
+function createTimeline(response, mode = "ask", brainLabel = "Local brain") {
   const lines = pickLines(response, 5);
   const fallback = {
-    ask: [
-      "Request received",
-      "Local model response composed",
-      "Visual artifact generated",
-    ],
-    build: [
-      "Scope identified",
-      "Implementation path formed",
-      "Next actions prepared",
-    ],
-    analyze: [
-      "Signal collected",
-      "Risk pass completed",
-      "Readable summary prepared",
-    ],
+    ask: ["Request received", "Answer formed", "Ready"],
+    build: ["Scope identified", "Plan formed", "Next actions ready"],
+    analyze: ["Inputs scanned", "Patterns separated", "Summary ready"],
   };
 
   const source = lines.length >= 3 ? lines : (fallback[mode] ?? fallback.ask);
@@ -143,13 +137,21 @@ function createTimeline(response, mode = "ask") {
           ? "Output"
           : "Process",
     title: clampText(line, 72),
-    detail:
-      index === source.length - 1 ? "Ready for review" : "Local Gemma runtime",
+    detail: index === source.length - 1 ? "Ready for review" : brainLabel,
     state: index === source.length - 1 ? "ready" : "complete",
   }));
 }
 
-function createCards({ prompt, response, mode = "ask", durationMs }) {
+function createCards({
+  prompt,
+  response,
+  mode = "ask",
+  durationMs,
+  selectedBrain = "fast",
+  selectedModel,
+  brainLabel = "Fast Qwen",
+  router,
+}) {
   const lines = pickLines(response, 8);
   const primary = lines[0] ?? "The local model returned a response.";
   const secondary = lines.slice(1, 4);
@@ -159,9 +161,14 @@ function createCards({ prompt, response, mode = "ask", durationMs }) {
     {
       id: "primary",
       kind: "summary",
-      eyebrow: `${modeLabels[mode] ?? "Ask"} synthesis`,
-      title: "Main readout",
-      body: clampText(primary, 240),
+      eyebrow: "Response",
+      title:
+        mode === "build"
+          ? "Build answer"
+          : mode === "analyze"
+            ? "Analysis answer"
+            : "Answer",
+      body: clampText(primary, 170),
       items:
         secondary.length > 0
           ? secondary.map((line) => clampText(line, 110))
@@ -171,15 +178,17 @@ function createCards({ prompt, response, mode = "ask", durationMs }) {
     {
       id: "runtime",
       kind: "status",
-      eyebrow: "Local system",
-      title: "Private runtime",
-      body: "Generated locally through the isolated hermherm profile.",
+      eyebrow: "Engine",
+      title: brainLabel,
+      body: "Running locally inside the isolated HermHerm profile.",
       items: [
-        "Gemma local model",
-        "Hermes profile stays separate",
+        selectedModel || "Local model",
+        selectedBrain === "deep" ? "deep brain" : "fast brain",
+        router?.reason ? clampText(router.reason, 64) : "router active",
+        "separate from your main Hermes",
         durationMs
           ? `${Math.round(durationMs / 1000)}s response window`
-          : "Visual MCP pass",
+          : "visual pass",
       ],
       intensity: 82,
     },
@@ -189,8 +198,8 @@ function createCards({ prompt, response, mode = "ask", durationMs }) {
     cards.push({
       id: "actions",
       kind: "plan",
-      eyebrow: "Action map",
-      title: mode === "build" ? "Build path" : "Next moves",
+      eyebrow: "Next",
+      title: mode === "build" ? "Build path" : "Next move",
       body: actionLines[0]
         ? clampText(actionLines[0], 180)
         : "Use this response as a starting point, then refine the result.",
@@ -219,9 +228,9 @@ function createCards({ prompt, response, mode = "ask", durationMs }) {
       id: "thin-output",
       kind: "warning",
       eyebrow: "Low detail",
-      title: "Short response",
-      body: "The model returned a very small answer, so the visual layer has less to work with.",
-      items: ["Ask for a plan", "Ask for a comparison", "Ask for a breakdown"],
+      title: "Small answer",
+      body: "The model answered briefly, so the surface stayed minimal.",
+      items: ["ask for a plan", "ask for a comparison", "ask for a breakdown"],
       intensity: 44,
     });
   }
@@ -235,35 +244,68 @@ function createVisualPayload(args = {}) {
   const mode = ["ask", "build", "analyze"].includes(args.mode)
     ? args.mode
     : "ask";
+  const selectedBrain = args.selectedBrain === "deep" ? "deep" : "fast";
+  const selectedModel = args.selectedModel || args.model || "local";
+  const brainLabel =
+    args.brainLabel ||
+    (selectedBrain === "deep" ? "Deep Gemma 4" : "Fast Qwen");
   const durationMs = Number(args.durationMs || 0) || undefined;
-  const cards = createCards({ prompt, response, mode, durationMs });
-  const timeline = createTimeline(response, mode);
+  const router =
+    args.router && typeof args.router.route === "string" ? args.router : null;
+  const cards = createCards({
+    prompt,
+    response,
+    mode,
+    durationMs,
+    selectedBrain,
+    selectedModel,
+    brainLabel,
+    router,
+  });
+  const timeline = createTimeline(response, mode, brainLabel);
 
   return {
     version: 1,
     source: "hermherm-visual-mcp",
     mode,
+    selectedBrain,
+    selectedModel,
+    brainLabel,
+    ...(router ? { router } : {}),
+    canRerunDeep: Boolean(args.canRerunDeep),
+    deepReady: Boolean(args.deepReady),
     headline: titleFromPrompt(prompt),
     subtitle:
+      selectedBrain === "deep"
+        ? "Deep answer"
+        : router?.fallback
+          ? "Fallback answer"
+          : "Fast answer",
+    modeSubtitle:
       mode === "build"
-        ? "Build-focused visual response"
+        ? "Build response"
         : mode === "analyze"
-          ? "Analysis-focused visual response"
-          : "Visual response from the local assistant",
+          ? "Analysis response"
+          : "Response",
     intent:
       mode === "build" ? "construct" : mode === "analyze" ? "scan" : "query",
     cards,
     timeline,
     metrics: [
       {
-        label: "Model",
-        value: args.model || "local",
+        label: "Brain",
+        value: brainLabel,
         tone: "warm",
       },
       {
-        label: "Visual MCP",
-        value: "active",
-        tone: "green",
+        label: "Model",
+        value: selectedModel,
+        tone: selectedBrain === "deep" ? "green" : "warm",
+      },
+      {
+        label: "Route",
+        value: router?.route === "deep" ? "deep" : selectedBrain,
+        tone: router?.fallback ? "amber" : "green",
       },
       {
         label: "Runtime",

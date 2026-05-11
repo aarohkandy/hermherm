@@ -16,7 +16,8 @@ Your default Hermes profile and Discord gateway stay on their own profile.
 - Uses a clean beige command surface by default.
 - Starts/checks an isolated Hermes profile on `http://127.0.0.1:8643`.
 - Uses app-owned Ollama local chat on `http://127.0.0.1:11434`.
-- Downloads/uses `gemma3:4b` in the `hermherm` profile model store.
+- Uses a two-brain local model setup: `qwen2.5:0.5b` for fast routing/simple answers and `gemma4:e4b` for deep answers.
+- Starts the app as soon as Fast Qwen is ready, then downloads Deep Gemma 4 in the background if needed.
 - Removes starter tasks; the app opens directly to a command input.
 - Runs a local `hermherm-visuals` MCP-style server that turns local model replies into visual cards, metrics, and task maps.
 - Builds a Windows portable app or installer.
@@ -64,10 +65,11 @@ HermHerm Hermes profile: hermherm
 HermHerm Hermes API:     http://127.0.0.1:8643
 HermHerm API key:        hermherm-local-dev
 HermHerm Ollama:         http://127.0.0.1:11434
-Default local model:     gemma3:4b
+Fast local model:        qwen2.5:0.5b
+Deep local model:        gemma4:e4b
 ```
 
-The app currently chats through the app-owned Ollama endpoint for responsiveness. The isolated Hermes API is still started and health-checked so the app runtime is separate from your default Hermes/Discord setup.
+The app currently chats through the app-owned Ollama endpoint for responsiveness. Qwen classifies each prompt first, then HermHerm either answers with Fast Qwen or routes to Deep Gemma 4. The isolated Hermes API is still started and health-checked so the app runtime is separate from your default Hermes/Discord setup.
 
 ## Visual MCP Server
 
@@ -77,7 +79,7 @@ The visual layer lives in:
 electron\visual-mcp-server.cjs
 ```
 
-It exposes MCP-style stdio methods including `tools/list` and `tools/call`. The desktop app calls `compose_visual_response` after each local Gemma response, then renders the returned structure as visual cards, runtime metrics, and a task map.
+It exposes MCP-style stdio methods including `tools/list` and `tools/call`. The desktop app calls `compose_visual_response` after each local model response, then renders the returned structure as visual cards, routing metadata, runtime metrics, and a task map.
 
 ## Build A Windows App
 

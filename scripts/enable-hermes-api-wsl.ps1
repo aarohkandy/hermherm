@@ -14,7 +14,8 @@ set -euo pipefail
 export PATH="$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 PROFILE="hermherm"
-MODEL="${HERMHERM_LOCAL_MODEL:-gemma3:4b}"
+FAST_MODEL="${HERMHERM_FAST_MODEL:-qwen2.5:0.5b}"
+DEEP_MODEL="${HERMHERM_DEEP_MODEL:-gemma4:e4b}"
 PROFILE_DIR="$HOME/.hermes/profiles/$PROFILE"
 HERMES_BIN="$HOME/.local/bin/hermes"
 OLLAMA_ROOT="$HOME/.local/ollama"
@@ -26,7 +27,7 @@ if [ ! -x "$HERMES_BIN" ]; then
   exit 11
 fi
 
-if ! "$HERMES_BIN" profile list | grep -Eq "^[[:space:]]*$PROFILE[[:space:]]|^[[:space:]]*◆$PROFILE[[:space:]]"; then
+if ! "$HERMES_BIN" profile list | grep -Eq "(^|[[:space:]])$PROFILE([[:space:]]|$)"; then
   echo "Creating isolated Hermes profile: $PROFILE"
   "$HERMES_BIN" profile create "$PROFILE" >/dev/null 2>&1 || true
 fi
@@ -36,7 +37,7 @@ mkdir -p "$PROFILE_DIR/logs" "$PROFILE_DIR/workspace" "$PROFILE_DIR/ollama-model
 cat > "$PROFILE_DIR/config.yaml" <<EOF
 model:
   provider: custom
-  default: $MODEL
+  default: $FAST_MODEL
   base_url: http://127.0.0.1:11434/v1
   api_mode: chat_completions
   context_length: 65536
@@ -64,7 +65,7 @@ tool_output:
 auxiliary:
   compression:
     provider: custom
-    model: $MODEL
+    model: $FAST_MODEL
     base_url: http://127.0.0.1:11434/v1
     api_key: ollama
     context_length: 65536
@@ -122,9 +123,18 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 
-if ! env OLLAMA_HOST=127.0.0.1:11434 OLLAMA_MODELS="$PROFILE_DIR/ollama-models" "$OLLAMA_BIN" list | awk '{print $1}' | grep -Fx "$MODEL" >/dev/null 2>&1; then
-  echo "Downloading local model: $MODEL"
-  env OLLAMA_HOST=127.0.0.1:11434 OLLAMA_MODELS="$PROFILE_DIR/ollama-models" "$OLLAMA_BIN" pull "$MODEL"
+if ! env OLLAMA_HOST=127.0.0.1:11434 OLLAMA_MODELS="$PROFILE_DIR/ollama-models" "$OLLAMA_BIN" list | awk '{print $1}' | grep -Fx "$FAST_MODEL" >/dev/null 2>&1; then
+  echo "Downloading fast local model: $FAST_MODEL"
+  env GODEBUG=netdns=cgo OLLAMA_HOST=127.0.0.1:11434 OLLAMA_MODELS="$PROFILE_DIR/ollama-models" "$OLLAMA_BIN" pull "$FAST_MODEL"
+fi
+
+if ! env OLLAMA_HOST=127.0.0.1:11434 OLLAMA_MODELS="$PROFILE_DIR/ollama-models" "$OLLAMA_BIN" list | awk '{print $1}' | grep -Fx "$DEEP_MODEL" >/dev/null 2>&1; then
+  if [ ! -f "$PROFILE_DIR/logs/deep-model-pull.pid" ] || ! kill -0 "$(cat "$PROFILE_DIR/logs/deep-model-pull.pid")" >/dev/null 2>&1; then
+    echo "Starting background download for deep local model: $DEEP_MODEL"
+    ( setsid env GODEBUG=netdns=cgo OLLAMA_HOST=127.0.0.1:11434 OLLAMA_MODELS="$PROFILE_DIR/ollama-models" "$OLLAMA_BIN" pull "$DEEP_MODEL" > "$PROFILE_DIR/logs/deep-model-pull.log" 2>&1 < /dev/null & echo $! > "$PROFILE_DIR/logs/deep-model-pull.pid" )
+  else
+    echo "Deep local model is already downloading: $DEEP_MODEL"
+  fi
 fi
 
 if [ -f "$PROFILE_DIR/logs/gateway-app.pid" ]; then
@@ -172,6 +182,8 @@ $models = Invoke-RestMethod -Uri "http://127.0.0.1:11434/api/tags" -TimeoutSec 1
 
 Write-Host "Hermes profile: hermherm"
 Write-Host "Hermes API:    http://127.0.0.1:8643 ($($health.status))"
-Write-Host "Ollama model:  $($models.models.name -join ', ')"
+Write-Host "Fast model:    qwen2.5:0.5b"
+Write-Host "Deep model:    gemma4:e4b (ready when it appears below)"
+Write-Host "Ollama models: $($models.models.name -join ', ')"
 Write-Host ""
 Write-Host "Your default Hermes profile and Discord gateway were not modified."

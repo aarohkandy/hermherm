@@ -166,12 +166,10 @@ try {
   await expectBodyIncludes("Signal idle");
   await expectBodyIncludes("Awaiting impulse");
 
-  await fillComposer(
-    "Write one short sentence saying the packaged local app works.",
-  );
+  await fillComposer("hey");
   await clickSelector(".send-button");
 
-  for (let attempt = 0; attempt < 600; attempt += 1) {
+  for (let attempt = 0; attempt < 240; attempt += 1) {
     const body = await evalJs("document.body.innerText");
     const normalizedBody = body.toLowerCase();
     if (body.includes("I could not get a local response yet")) {

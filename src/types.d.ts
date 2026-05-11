@@ -110,6 +110,10 @@ declare global {
     models?: {
       fast?: {
         name: string;
+        targetName?: string;
+        targetState?: "ready" | "missing" | "downloading" | "error";
+        fallback?: boolean;
+        fallbackName?: string | null;
         label?: string;
         ready: boolean;
         state: "ready" | "missing" | "downloading" | "error";
@@ -118,6 +122,10 @@ declare global {
       };
       deep?: {
         name: string;
+        targetName?: string;
+        targetState?: "ready" | "missing" | "downloading" | "error";
+        fallback?: boolean;
+        fallbackName?: string | null;
         label?: string;
         ready: boolean;
         state: "ready" | "missing" | "downloading" | "error";

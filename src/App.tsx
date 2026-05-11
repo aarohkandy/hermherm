@@ -120,6 +120,9 @@ function inferPromptMode(content: string): HermHermMode {
 
 function friendlyDeepError(error?: string | null) {
   if (!error) return "Gemma 4 could not finish downloading.";
+  if (/network.*block|dns.*redirect|registry.*redirect|private/i.test(error)) {
+    return "Network is blocking Gemma 4.";
+  }
   if (/timeout|timed out|i\/o timeout/i.test(error)) {
     return "Ollama registry timed out.";
   }
@@ -156,7 +159,7 @@ function fallbackVisual(
         id: "fallback",
         kind: "summary",
         eyebrow: mode,
-        title: "Main readout",
+        title: "Decoded signal",
         body: firstLine,
         items: [],
         intensity: 68,
@@ -209,8 +212,17 @@ function App() {
   const startupReadable = runtimeReady
     ? "Fast ready. Deep runs when available."
     : startupNote;
+  const deepTargetState =
+    status?.models?.deep?.targetState ?? status?.models?.deep?.state;
+  const deepTargetDownloading =
+    deepTargetState === "downloading" ||
+    status?.models?.deep?.state === "downloading";
   const deepState = status?.models?.deep?.ready
-    ? "Ready"
+    ? status.models.deep.fallback
+      ? deepTargetDownloading
+        ? "Gemma 4 downloading"
+        : "Deep fallback"
+      : "Ready"
     : status?.models?.deep?.state === "downloading"
       ? "Downloading"
       : status?.models?.deep?.state === "error"
@@ -222,9 +234,22 @@ function App() {
   const deepErrorLabel = friendlyDeepError(deepError);
   const deepProgressLabel =
     deepProgress?.label ??
-    (status?.models?.deep?.state === "downloading"
-      ? "Preparing download"
-      : deepState);
+    (deepTargetDownloading ? "Preparing download" : deepState);
+  const deepSubstatus = status?.models?.deep?.fallback
+    ? deepTargetDownloading
+      ? `${status.models.deep.label ?? status.models.deep.name} is active. ${deepProgressLabel}`
+      : deepTargetState === "error"
+        ? `${status.models.deep.label ?? status.models.deep.name} is active. ${deepProgressLabel}`
+        : `${status.models.deep.label ?? status.models.deep.name} is active while Gemma 4 retries.`
+    : deepProgressLabel;
+  const shouldPollDeep =
+    status?.models?.deep?.state === "downloading" ||
+    deepTargetState === "downloading" ||
+    Boolean(
+      status?.models?.deep?.fallback &&
+      status.models.deep.targetName &&
+      status.models.deep.targetName !== status.models.deep.name,
+    );
 
   function buildHistory() {
     return exchanges
@@ -313,7 +338,7 @@ function App() {
   }, [exchanges]);
 
   useEffect(() => {
-    if (status?.models?.deep?.state !== "downloading") return;
+    if (!shouldPollDeep) return;
 
     const interval = window.setInterval(() => {
       void client
@@ -323,7 +348,7 @@ function App() {
     }, 3_000);
 
     return () => window.clearInterval(interval);
-  }, [client, status?.models?.deep?.state]);
+  }, [client, shouldPollDeep]);
 
   function newSession() {
     setExchanges([]);
@@ -574,7 +599,8 @@ function App() {
               className={
                 status?.models?.deep?.state === "downloading"
                   ? "readout-row deep-readout is-downloading"
-                  : status?.models?.deep?.state === "error"
+                  : status?.models?.deep?.state === "error" ||
+                      deepTargetState === "error"
                     ? "readout-row deep-readout is-error"
                     : "readout-row deep-readout"
               }
@@ -584,8 +610,7 @@ function App() {
                 <span>Deep</span>
                 <strong>{deepState}</strong>
                 {status?.models?.deep?.state !== "error" &&
-                (status?.models?.deep?.state === "downloading" ||
-                  deepPercent !== null) ? (
+                (deepTargetDownloading || deepPercent !== null) ? (
                   <>
                     <div
                       aria-label="Deep download progress"
@@ -599,8 +624,8 @@ function App() {
                     </div>
                     <small>
                       {deepPercent !== null
-                        ? `${deepPercent}% - ${deepProgressLabel}`
-                        : deepProgressLabel}
+                        ? `${deepPercent}% - ${deepSubstatus}`
+                        : deepSubstatus}
                     </small>
                   </>
                 ) : null}
@@ -615,6 +640,15 @@ function App() {
                       Retry
                     </button>
                   </>
+                ) : null}
+                {status?.models?.deep?.fallback && deepError ? (
+                  <button
+                    className="inline-retry-button quiet"
+                    onClick={retryDeepDownload}
+                    type="button"
+                  >
+                    Retry Gemma 4
+                  </button>
                 ) : null}
               </div>
             </div>
@@ -703,16 +737,7 @@ function SignalCore({
       <div className="signal-orbit orbit-one" />
       <div className="signal-orbit orbit-two" />
       <div className="signal-orbit orbit-three" />
-      <div className="signal-nucleus">
-        {Array.from({ length: 10 }, (_, index) => (
-          <i key={index} />
-        ))}
-      </div>
-      <div className="signal-lanes">
-        {Array.from({ length: 6 }, (_, index) => (
-          <span key={index} />
-        ))}
-      </div>
+      <div className="signal-nucleus" />
     </div>
   );
 }
@@ -820,13 +845,23 @@ function VisualArtifact({
                 <span className="fallback-chip">Fallback</span>
               ) : null}
             </div>
-            <p className="signal-caption">{visual.subtitle}</p>
-            <h3>{visual.cards[0]?.title ?? "Resolved signal"}</h3>
+            <p className="signal-caption">
+              {visual.brainLabel ?? "Local signal"}
+            </p>
+            <h3>{visual.modeSubtitle ?? "Response"}</h3>
+            <div className="answer-readout">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeHighlight]}
+              >
+                {visual.rawText}
+              </ReactMarkdown>
+            </div>
           </div>
         </div>
 
         <div className="signal-card-grid">
-          {visual.cards.slice(0, 4).map((card) => (
+          {visual.cards.slice(0, 3).map((card) => (
             <section className={`signal-card kind-${card.kind}`} key={card.id}>
               <span>{card.eyebrow}</span>
               <strong>{card.title}</strong>

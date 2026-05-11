@@ -19,6 +19,12 @@ const HERMES_API_KEY = process.env.HERMES_API_KEY || "hermherm-local-dev";
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://127.0.0.1:11434";
 const FAST_MODEL = process.env.HERMHERM_FAST_MODEL || "qwen2.5:0.5b";
 const DEEP_MODEL = process.env.HERMHERM_DEEP_MODEL || "gemma4:e4b";
+const DEEP_FALLBACK_MODELS = (
+  process.env.HERMHERM_DEEP_FALLBACK_MODELS || "gemma3:4b,llama3.2:3b"
+)
+  .split(",")
+  .map((model) => model.trim())
+  .filter(Boolean);
 const FAST_CHAT_TIMEOUT_MS = Number(
   process.env.HERMHERM_FAST_CHAT_TIMEOUT_MS || 180_000,
 );
@@ -27,6 +33,9 @@ const DEEP_CHAT_TIMEOUT_MS = Number(
 );
 const ROUTER_TIMEOUT_MS = Number(
   process.env.HERMHERM_ROUTER_TIMEOUT_MS || 45_000,
+);
+const DEEP_PULL_RETRY_INTERVAL_MS = Number(
+  process.env.HERMHERM_DEEP_PULL_RETRY_INTERVAL_MS || 120_000,
 );
 const VISUAL_MCP_SERVER = "hermherm-visuals";
 const CHAT_MODES = new Set(["ask", "build", "analyze"]);
@@ -41,6 +50,7 @@ let deepPullState = {
   progress: null,
 };
 let lastDeepPullProbeAt = 0;
+let lastDeepPullAttemptAt = 0;
 
 function hermesHeaders(extra = {}) {
   return {
@@ -140,6 +150,51 @@ function modelState(modelNames, model, pendingState) {
   };
 }
 
+function brainLabelForModel(model, brain = "deep") {
+  if (brain === "fast") return BRAIN_LABELS.fast;
+  if (/gemma4/i.test(model)) return "Deep Gemma 4";
+  if (/gemma3/i.test(model)) return "Deep Gemma 3";
+  if (/llama/i.test(model)) return "Deep Llama";
+  return "Deep local brain";
+}
+
+function pickDeepModel(modelNames) {
+  if (modelNames.includes(DEEP_MODEL)) {
+    return {
+      name: DEEP_MODEL,
+      targetName: DEEP_MODEL,
+      fallback: false,
+      fallbackName: null,
+      label: brainLabelForModel(DEEP_MODEL),
+      ready: true,
+    };
+  }
+
+  const fallbackName = DEEP_FALLBACK_MODELS.find((model) =>
+    modelNames.includes(model),
+  );
+
+  if (fallbackName) {
+    return {
+      name: fallbackName,
+      targetName: DEEP_MODEL,
+      fallback: true,
+      fallbackName,
+      label: brainLabelForModel(fallbackName),
+      ready: true,
+    };
+  }
+
+  return {
+    name: DEEP_MODEL,
+    targetName: DEEP_MODEL,
+    fallback: false,
+    fallbackName: null,
+    label: BRAIN_LABELS.deep,
+    ready: false,
+  };
+}
+
 function stripAnsi(text) {
   return String(text ?? "")
     .replace(/\u001b\[[0-9;?]*[A-Za-z]/g, "")
@@ -206,6 +261,14 @@ function parseDeepPullError(logText) {
 }
 
 function progressForDeepError(message) {
+  if (
+    /network.*block|dns.*redirect|registry.*redirect|private network/i.test(
+      message,
+    )
+  ) {
+    return { percent: 0, label: "Network blocks Ollama" };
+  }
+
   if (/timeout|timed out/i.test(message)) {
     return { percent: 0, label: "Registry timed out" };
   }
@@ -386,7 +449,7 @@ function buildChatMessages({ content, history, mode, selectedBrain }) {
         "You are using the isolated hermherm runtime, not the user's default Hermes setup.",
         selectedBrain === "fast"
           ? "You are answering as the Fast Qwen brain. Be brief, direct, and useful."
-          : "You are answering as the Deep Gemma 4 brain. Be careful, structured, and complete.",
+          : "You are answering as the Deep local brain. Be careful, structured, and complete.",
         "Write in clear sections with concrete points so the desktop app can turn your answer into visual cards.",
         "Do not end with a follow-up question unless the user explicitly asks for options.",
         mode === "build"
@@ -409,6 +472,14 @@ async function ensureDeepModelPull() {
     return;
   }
 
+  if (
+    deepPullState.state === "error" &&
+    Date.now() - lastDeepPullAttemptAt < DEEP_PULL_RETRY_INTERVAL_MS
+  ) {
+    return;
+  }
+
+  lastDeepPullAttemptAt = Date.now();
   deepPullState = {
     state: "starting",
     error: null,
@@ -459,8 +530,7 @@ if pgrep -f "ollama.*pull.*$DEEP_MODEL" >/dev/null 2>&1; then
   exit 0
 fi
 
-nohup env OLLAMA_HOST=127.0.0.1:11434 OLLAMA_MODELS="$PROFILE_DIR/ollama-models" "$OLLAMA_BIN" pull "$DEEP_MODEL" > "$PROFILE_DIR/logs/deep-model-pull.log" 2>&1 &
-echo $! > "$PROFILE_DIR/logs/deep-model-pull.pid"
+( setsid env GODEBUG=netdns=cgo OLLAMA_HOST=127.0.0.1:11434 OLLAMA_MODELS="$PROFILE_DIR/ollama-models" "$OLLAMA_BIN" pull "$DEEP_MODEL" > "$PROFILE_DIR/logs/deep-model-pull.log" 2>&1 < /dev/null & echo $! > "$PROFILE_DIR/logs/deep-model-pull.pid" )
 echo "deep-downloading"`,
       60_000,
     );
@@ -515,6 +585,15 @@ if [ -f "$LOG_FILE" ] && tail -n 12 "$LOG_FILE" | grep -qi "error:"; then
   tail -n 4 "$LOG_FILE" | tr '\\n' ' ' | cut -c1-300
   exit 0
 fi
+
+DNS_IP="$(getent hosts registry.ollama.ai | awk '{print $1; exit}' || true)"
+case "$DNS_IP" in
+  10.*|192.168.*|172.16.*|172.17.*|172.18.*|172.19.*|172.2[0-9].*|172.3[0-1].*)
+    echo "deep-error"
+    echo "Network appears to redirect Ollama registry DNS to a private address ($DNS_IP)."
+    exit 0
+    ;;
+esac
 
 if [ -f "$LOG_FILE" ]; then
   echo "deep-progress"
@@ -636,14 +715,49 @@ async function getHermesStatus({ startDeepPull = true } = {}) {
       version: version?.version,
       models: modelNames,
     };
+    const deepChoice = pickDeepModel(modelNames);
+    const targetState =
+      deepPullState.state === "starting"
+        ? "downloading"
+        : deepPullState.state === "idle"
+          ? "missing"
+          : deepPullState.state;
     status.models.fast = {
       label: BRAIN_LABELS.fast,
       ...modelState(modelNames, FAST_MODEL, "missing"),
     };
-    status.models.deep = {
-      label: BRAIN_LABELS.deep,
-      ...modelState(modelNames, DEEP_MODEL, deepPullState.state),
-    };
+    status.models.deep = deepChoice.ready
+      ? {
+          name: deepChoice.name,
+          targetName: deepChoice.targetName,
+          targetState,
+          fallback: deepChoice.fallback,
+          fallbackName: deepChoice.fallbackName,
+          label: deepChoice.label,
+          ready: true,
+          state: "ready",
+          error: deepChoice.fallback ? deepPullState.error : null,
+          progress: deepChoice.fallback
+            ? (deepPullState.progress ?? {
+                percent: targetState === "error" ? 0 : 3,
+                label:
+                  targetState === "error"
+                    ? "Gemma 4 needs retry"
+                    : "Gemma 4 queued",
+              })
+            : {
+                percent: 100,
+                label: "Ready",
+              },
+        }
+      : {
+          label: BRAIN_LABELS.deep,
+          targetName: DEEP_MODEL,
+          targetState,
+          fallback: false,
+          fallbackName: null,
+          ...modelState(modelNames, DEEP_MODEL, deepPullState.state),
+        };
     status.ok = status.models.fast.ready;
     status.model = status.models.fast.name;
   } catch (error) {
@@ -655,16 +769,17 @@ async function getHermesStatus({ startDeepPull = true } = {}) {
 
   if (
     status.ok &&
-    !status.models.deep.ready &&
-    startDeepPull &&
-    deepPullState.state !== "error"
+    !status.ollama.models?.includes?.(DEEP_MODEL) &&
+    startDeepPull
   ) {
-    status.models.deep.state = "downloading";
-    status.models.deep.progress = deepPullState.progress ??
-      status.models.deep.progress ?? {
-        percent: 3,
-        label: "Connecting to Ollama registry",
-      };
+    if (!status.models.deep.fallback) {
+      status.models.deep.state = "downloading";
+      status.models.deep.progress = deepPullState.progress ??
+        status.models.deep.progress ?? {
+          percent: 3,
+          label: "Connecting to Ollama registry",
+        };
+    }
     void ensureDeepModelPull();
   }
 
@@ -788,13 +903,12 @@ for _ in $(seq 1 60); do
 done
 
 if ! env OLLAMA_HOST=127.0.0.1:11434 OLLAMA_MODELS="$PROFILE_DIR/ollama-models" "$OLLAMA_BIN" list | awk '{print $1}' | grep -Fx "$FAST_MODEL" >/dev/null 2>&1; then
-  env OLLAMA_HOST=127.0.0.1:11434 OLLAMA_MODELS="$PROFILE_DIR/ollama-models" "$OLLAMA_BIN" pull "$FAST_MODEL"
+  env GODEBUG=netdns=cgo OLLAMA_HOST=127.0.0.1:11434 OLLAMA_MODELS="$PROFILE_DIR/ollama-models" "$OLLAMA_BIN" pull "$FAST_MODEL"
 fi
 
 if ! env OLLAMA_HOST=127.0.0.1:11434 OLLAMA_MODELS="$PROFILE_DIR/ollama-models" "$OLLAMA_BIN" list | awk '{print $1}' | grep -Fx "$DEEP_MODEL" >/dev/null 2>&1; then
   if [ ! -f "$PROFILE_DIR/logs/deep-model-pull.pid" ] || ! kill -0 "$(cat "$PROFILE_DIR/logs/deep-model-pull.pid")" >/dev/null 2>&1; then
-    nohup env OLLAMA_HOST=127.0.0.1:11434 OLLAMA_MODELS="$PROFILE_DIR/ollama-models" "$OLLAMA_BIN" pull "$DEEP_MODEL" > "$PROFILE_DIR/logs/deep-model-pull.log" 2>&1 &
-    echo $! > "$PROFILE_DIR/logs/deep-model-pull.pid"
+    ( setsid env GODEBUG=netdns=cgo OLLAMA_HOST=127.0.0.1:11434 OLLAMA_MODELS="$PROFILE_DIR/ollama-models" "$OLLAMA_BIN" pull "$DEEP_MODEL" > "$PROFILE_DIR/logs/deep-model-pull.log" 2>&1 < /dev/null & echo $! > "$PROFILE_DIR/logs/deep-model-pull.pid" )
   fi
 fi
 
@@ -854,13 +968,23 @@ async function runChatRequest(payload, { forceDeep = false } = {}) {
     : await classifyPrompt(content, mode);
 
   const deepReady = Boolean(status.models?.deep?.ready);
+  const availableDeepModel = status.models?.deep?.name || DEEP_MODEL;
+  const availableDeepLabel = status.models?.deep?.label || BRAIN_LABELS.deep;
+
+  if (forceDeep) {
+    router.reason = `Manual rerun with ${availableDeepLabel}.`;
+    router.fallback = Boolean(status.models?.deep?.fallback);
+  }
 
   if (forceDeep && !deepReady) {
-    throw new Error("Deep Gemma 4 is still downloading.");
+    throw new Error("No deep local model is ready yet.");
   }
 
   const selectedBrain = router.route === "deep" && deepReady ? "deep" : "fast";
-  const selectedModel = selectedBrain === "deep" ? DEEP_MODEL : FAST_MODEL;
+  const selectedModel =
+    selectedBrain === "deep" ? availableDeepModel : FAST_MODEL;
+  const selectedBrainLabel =
+    selectedBrain === "deep" ? availableDeepLabel : BRAIN_LABELS.fast;
   const deepFallback = router.route === "deep" && !deepReady;
   const canRerunDeep = selectedBrain === "fast" && deepReady;
   const recentHistory = recentHistoryFrom(payload);
@@ -915,7 +1039,7 @@ async function runChatRequest(payload, { forceDeep = false } = {}) {
       model: selectedModel,
       selectedModel,
       selectedBrain,
-      brainLabel: BRAIN_LABELS[selectedBrain],
+      brainLabel: selectedBrainLabel,
       runtimeReady: status.ok,
       durationMs: result?.total_duration
         ? Math.round(result.total_duration / 1_000_000)
@@ -956,6 +1080,7 @@ ipcMain.handle("hermes:retry-deep", async () => {
     progress: null,
   };
   lastDeepPullProbeAt = 0;
+  lastDeepPullAttemptAt = 0;
   await ensureDeepModelPull();
   return getHermesStatus({ startDeepPull: false });
 });

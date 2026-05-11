@@ -122,21 +122,9 @@ function scoreForText(text) {
 function createTimeline(response, mode = "ask", brainLabel = "Local brain") {
   const lines = pickLines(response, 5);
   const fallback = {
-    ask: [
-      "Request received",
-      "Local model response composed",
-      "Visual artifact generated",
-    ],
-    build: [
-      "Scope identified",
-      "Implementation path formed",
-      "Next actions prepared",
-    ],
-    analyze: [
-      "Signal collected",
-      "Risk pass completed",
-      "Readable summary prepared",
-    ],
+    ask: ["Request received", "Answer formed", "Ready"],
+    build: ["Scope identified", "Plan formed", "Next actions ready"],
+    analyze: ["Inputs scanned", "Patterns separated", "Summary ready"],
   };
 
   const source = lines.length >= 3 ? lines : (fallback[mode] ?? fallback.ask);
@@ -173,9 +161,14 @@ function createCards({
     {
       id: "primary",
       kind: "summary",
-      eyebrow: `${modeLabels[mode] ?? "Ask"} synthesis`,
-      title: "Main readout",
-      body: clampText(primary, 240),
+      eyebrow: "Response",
+      title:
+        mode === "build"
+          ? "Build answer"
+          : mode === "analyze"
+            ? "Analysis answer"
+            : "Answer",
+      body: clampText(primary, 170),
       items:
         secondary.length > 0
           ? secondary.map((line) => clampText(line, 110))
@@ -185,17 +178,17 @@ function createCards({
     {
       id: "runtime",
       kind: "status",
-      eyebrow: "Local system",
+      eyebrow: "Engine",
       title: brainLabel,
-      body: "Generated locally through the isolated hermherm profile.",
+      body: "Running locally inside the isolated HermHerm profile.",
       items: [
         selectedModel || "Local model",
-        selectedBrain === "deep" ? "Deep reasoning path" : "Fast response path",
-        router?.reason ? clampText(router.reason, 92) : "Router active",
-        "Hermes profile stays separate",
+        selectedBrain === "deep" ? "deep brain" : "fast brain",
+        router?.reason ? clampText(router.reason, 64) : "router active",
+        "separate from your main Hermes",
         durationMs
           ? `${Math.round(durationMs / 1000)}s response window`
-          : "Visual MCP pass",
+          : "visual pass",
       ],
       intensity: 82,
     },
@@ -205,8 +198,8 @@ function createCards({
     cards.push({
       id: "actions",
       kind: "plan",
-      eyebrow: "Action map",
-      title: mode === "build" ? "Build path" : "Next moves",
+      eyebrow: "Next",
+      title: mode === "build" ? "Build path" : "Next move",
       body: actionLines[0]
         ? clampText(actionLines[0], 180)
         : "Use this response as a starting point, then refine the result.",
@@ -235,9 +228,9 @@ function createCards({
       id: "thin-output",
       kind: "warning",
       eyebrow: "Low detail",
-      title: "Short response",
-      body: "The model returned a very small answer, so the visual layer has less to work with.",
-      items: ["Ask for a plan", "Ask for a comparison", "Ask for a breakdown"],
+      title: "Small answer",
+      body: "The model answered briefly, so the surface stayed minimal.",
+      items: ["ask for a plan", "ask for a comparison", "ask for a breakdown"],
       intensity: 44,
     });
   }
@@ -284,16 +277,16 @@ function createVisualPayload(args = {}) {
     headline: titleFromPrompt(prompt),
     subtitle:
       selectedBrain === "deep"
-        ? "Deep Gemma 4 visual response"
+        ? "Deep answer"
         : router?.fallback
-          ? "Fast fallback visual response"
-          : "Fast Qwen visual response",
+          ? "Fallback answer"
+          : "Fast answer",
     modeSubtitle:
       mode === "build"
-        ? "Build-focused visual response"
+        ? "Build response"
         : mode === "analyze"
-          ? "Analysis-focused visual response"
-          : "Visual response from the local assistant",
+          ? "Analysis response"
+          : "Response",
     intent:
       mode === "build" ? "construct" : mode === "analyze" ? "scan" : "query",
     cards,

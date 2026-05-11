@@ -125,14 +125,13 @@ done
 
 if ! env OLLAMA_HOST=127.0.0.1:11434 OLLAMA_MODELS="$PROFILE_DIR/ollama-models" "$OLLAMA_BIN" list | awk '{print $1}' | grep -Fx "$FAST_MODEL" >/dev/null 2>&1; then
   echo "Downloading fast local model: $FAST_MODEL"
-  env OLLAMA_HOST=127.0.0.1:11434 OLLAMA_MODELS="$PROFILE_DIR/ollama-models" "$OLLAMA_BIN" pull "$FAST_MODEL"
+  env GODEBUG=netdns=cgo OLLAMA_HOST=127.0.0.1:11434 OLLAMA_MODELS="$PROFILE_DIR/ollama-models" "$OLLAMA_BIN" pull "$FAST_MODEL"
 fi
 
 if ! env OLLAMA_HOST=127.0.0.1:11434 OLLAMA_MODELS="$PROFILE_DIR/ollama-models" "$OLLAMA_BIN" list | awk '{print $1}' | grep -Fx "$DEEP_MODEL" >/dev/null 2>&1; then
   if [ ! -f "$PROFILE_DIR/logs/deep-model-pull.pid" ] || ! kill -0 "$(cat "$PROFILE_DIR/logs/deep-model-pull.pid")" >/dev/null 2>&1; then
     echo "Starting background download for deep local model: $DEEP_MODEL"
-    nohup env OLLAMA_HOST=127.0.0.1:11434 OLLAMA_MODELS="$PROFILE_DIR/ollama-models" "$OLLAMA_BIN" pull "$DEEP_MODEL" > "$PROFILE_DIR/logs/deep-model-pull.log" 2>&1 &
-    echo $! > "$PROFILE_DIR/logs/deep-model-pull.pid"
+    ( setsid env GODEBUG=netdns=cgo OLLAMA_HOST=127.0.0.1:11434 OLLAMA_MODELS="$PROFILE_DIR/ollama-models" "$OLLAMA_BIN" pull "$DEEP_MODEL" > "$PROFILE_DIR/logs/deep-model-pull.log" 2>&1 < /dev/null & echo $! > "$PROFILE_DIR/logs/deep-model-pull.pid" )
   else
     echo "Deep local model is already downloading: $DEEP_MODEL"
   fi

@@ -1,18 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, FormEvent, KeyboardEvent } from "react";
+import type { FormEvent, KeyboardEvent } from "react";
 import {
   ArrowUp,
   BrainCircuit,
   CheckCircle2,
   CircleDot,
   Cpu,
-  HardDrive,
   Layers3,
   Loader2,
   MessageSquarePlus,
   Orbit,
-  PanelTop,
-  Radar,
   ScanLine,
   Sparkles,
   WifiOff,
@@ -163,10 +160,10 @@ function App() {
 
   const client = useMemo(() => window.hermherm?.hermes ?? browserClient, []);
   const platformLabel = useMemo(() => {
-    if (!window.hermherm?.isDesktop) return "Browser preview";
-    if (window.hermherm.platform === "win32") return "Windows command surface";
-    if (window.hermherm.platform === "darwin") return "macOS command surface";
-    return "Desktop command surface";
+    if (!window.hermherm?.isDesktop) return "Preview";
+    if (window.hermherm.platform === "win32") return "Windows";
+    if (window.hermherm.platform === "darwin") return "macOS";
+    return "Desktop";
   }, []);
 
   const runtimeReady = Boolean(status?.ok);
@@ -177,8 +174,13 @@ function App() {
   const isProcessing =
     isStarting || isSending || Boolean(latestExchange?.pending);
   const startupReadable = runtimeReady
-    ? "Fast Qwen is ready. Deep Gemma 4 runs when available."
+    ? "Fast ready. Deep runs when available."
     : startupNote;
+  const deepState = status?.models?.deep?.ready
+    ? "Ready"
+    : status?.models?.deep?.state === "downloading"
+      ? "Downloading"
+      : "Waiting";
 
   function buildHistory() {
     return exchanges
@@ -483,7 +485,7 @@ function App() {
               </div>
             </div>
             <div className="core-copy">
-              <p>{activeMode.noun}</p>
+              <p>{activeMode.label}</p>
               <h2>{isProcessing ? "Composing locally" : "Awaiting command"}</h2>
               <span>{startupReadable}</span>
             </div>
@@ -493,41 +495,17 @@ function App() {
             <div className="readout-row">
               <Cpu size={17} />
               <div>
-                <span>Fast brain</span>
+                <span>Fast</span>
                 <strong>
-                  {status?.models?.fast?.ready ? "Ready" : "Missing"} -{" "}
-                  {status?.models?.fast?.name ?? fastModel}
+                  {status?.models?.fast?.ready ? "Ready" : "Missing"}
                 </strong>
               </div>
             </div>
             <div className="readout-row">
               <BrainCircuit size={17} />
               <div>
-                <span>Deep brain</span>
-                <strong>
-                  {status?.models?.deep?.ready
-                    ? "Ready"
-                    : status?.models?.deep?.state === "downloading"
-                      ? "Downloading"
-                      : "Missing"}{" "}
-                  - {status?.models?.deep?.name ?? deepModel}
-                </strong>
-              </div>
-            </div>
-            <div className="readout-row">
-              <PanelTop size={17} />
-              <div>
-                <span>Visual MCP</span>
-                <strong>
-                  {status?.visualMcp?.server ?? "hermherm-visuals"}
-                </strong>
-              </div>
-            </div>
-            <div className="readout-row">
-              <HardDrive size={17} />
-              <div>
-                <span>Profile</span>
-                <strong>{status?.profile ?? "hermherm"}</strong>
+                <span>Deep</span>
+                <strong>{deepState}</strong>
               </div>
             </div>
           </section>
@@ -566,12 +544,12 @@ function App() {
         >
           <div className="canvas-head">
             <div>
-              <p className="eyebrow">Artifact canvas</p>
-              <h2>{activeVisual?.headline ?? "Command surface"}</h2>
+              <p className="eyebrow">Surface</p>
+              <h2>{activeVisual ? "Response" : "Command surface"}</h2>
             </div>
             <span className="mcp-pill">
-              <Radar size={15} />
-              {status?.visualMcp?.tools?.length ?? 5} tools
+              <BrainCircuit size={15} />
+              {activeVisual?.brainLabel ?? "Local"}
             </span>
           </div>
 
@@ -603,13 +581,7 @@ function EmptyArtifact({ runtimeReady }: { runtimeReady: boolean }) {
     <section className="empty-artifact">
       <div className="empty-grid" />
       <div>
-        <p className="eyebrow">System state</p>
         <h3>{runtimeReady ? "Ready for a command" : "Runtime warming"}</h3>
-        <span>
-          {runtimeReady
-            ? "Standing by."
-            : "Fast Qwen, Deep Gemma 4, Hermes, and the visual server are being checked."}
-        </span>
       </div>
     </section>
   );
@@ -617,7 +589,6 @@ function EmptyArtifact({ runtimeReady }: { runtimeReady: boolean }) {
 
 function ProcessingArtifact({
   prompt,
-  mode,
 }: {
   prompt: string;
   mode: HermHermMode;
@@ -628,16 +599,8 @@ function ProcessingArtifact({
         <CircleDot size={38} />
       </div>
       <div>
-        <p className="eyebrow">{mode}</p>
-        <h3>{prompt}</h3>
-      </div>
-      <div className="stage-stack">
-        {processingStages.map((stage, index) => (
-          <div className="stage-row" key={stage}>
-            <span>{index + 1}</span>
-            <strong>{stage}</strong>
-          </div>
-        ))}
+        <h3>Thinking</h3>
+        <span>{prompt}</span>
       </div>
     </section>
   );
@@ -665,23 +628,21 @@ function VisualArtifact({
     exchange?.selectedBrain === "fast" || visual.selectedBrain === "fast";
   const showDeepRerun = Boolean(exchange && fastArtifact);
   const canRerunDeep = showDeepRerun && deepReady && !isSending;
+  const routeLabel = visual.router?.route ?? visual.selectedBrain ?? "fast";
+  const runMeta = [
+    visual.brainLabel ?? "Local",
+    routeLabel === "deep" ? "Deep route" : "Fast route",
+    duration ? duration : null,
+  ].filter(Boolean);
 
   return (
     <article className="visual-artifact">
       <section className="command-strip">
         <div>
-          <p className="eyebrow">Command</p>
+          <p className="eyebrow">You asked</p>
           <h3>{exchange?.prompt ?? visual.headline}</h3>
-          {visual.router?.route ? (
-            <small className="route-note">
-              Routed {visual.router.route} -{" "}
-              {Math.round(visual.router.confidence * 100)}% -{" "}
-              {visual.router.reason}
-            </small>
-          ) : null}
         </div>
         <div className="artifact-actions">
-          <span>{visual.subtitle}</span>
           {showDeepRerun && exchange ? (
             <button
               className="deep-rerun-button"
@@ -700,49 +661,49 @@ function VisualArtifact({
         </div>
       </section>
 
-      <section className="metric-grid">
-        {visual.metrics.map((metric) => (
-          <div
-            className={`metric-card tone-${metric.tone ?? "warm"}`}
-            key={metric.label}
-          >
-            <span>{metric.label}</span>
-            <strong>{metric.value}</strong>
+      <section className="answer-panel">
+        <div className="answer-topline">
+          <div className="run-chips">
+            {runMeta.map((item) => (
+              <span key={item}>{item}</span>
+            ))}
           </div>
-        ))}
-      </section>
-
-      <section className="visual-card-grid">
-        {visual.cards.map((card) => (
-          <div className={`visual-card kind-${card.kind}`} key={card.id}>
-            <div
-              className="card-meter"
-              style={{ "--level": `${card.intensity ?? 70}%` } as CSSProperties}
-            />
-            <p>{card.eyebrow}</p>
-            <h3>{card.title}</h3>
-            <span>{card.body}</span>
-            {card.items && card.items.length > 0 ? (
-              <ul>
-                {card.items.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            ) : null}
-          </div>
-        ))}
-      </section>
-
-      <section className="timeline-panel">
-        <div className="timeline-head">
-          <p className="eyebrow">Task map</p>
-          <span>
-            {duration
-              ? `Local response via ${visual.brainLabel ?? exchange?.selectedModel ?? "local model"} in ${duration}`
-              : `Local response via ${visual.brainLabel ?? "local model"}`}
-          </span>
+          {visual.router?.fallback ? (
+            <span className="fallback-chip">Fallback</span>
+          ) : null}
         </div>
-        <div className="timeline-track">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          rehypePlugins={[rehypeHighlight]}
+        >
+          {visual.rawText}
+        </ReactMarkdown>
+      </section>
+
+      <details className="detail-drawer">
+        <summary>Run details</summary>
+        <div className="detail-grid">
+          <span>Brain</span>
+          <strong>{visual.brainLabel ?? "Local"}</strong>
+          <span>Model</span>
+          <strong>
+            {visual.selectedModel ?? exchange?.selectedModel ?? "local"}
+          </strong>
+          <span>Route</span>
+          <strong>
+            {visual.router?.route ?? visual.selectedBrain ?? "fast"}
+            {visual.router?.confidence
+              ? `, ${Math.round(visual.router.confidence * 100)}%`
+              : ""}
+          </strong>
+          {visual.router?.reason ? (
+            <>
+              <span>Reason</span>
+              <strong>{visual.router.reason}</strong>
+            </>
+          ) : null}
+        </div>
+        <div className="timeline-track compact">
           {visual.timeline.map((item) => (
             <div className="timeline-node" key={item.id}>
               <span>{item.label}</span>
@@ -751,16 +712,6 @@ function VisualArtifact({
             </div>
           ))}
         </div>
-      </section>
-
-      <details className="detail-drawer">
-        <summary>Detail</summary>
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          rehypePlugins={[rehypeHighlight]}
-        >
-          {visual.rawText}
-        </ReactMarkdown>
       </details>
     </article>
   );

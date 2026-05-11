@@ -108,7 +108,8 @@ try {
     const normalizedBody = body.toLowerCase();
     if (
       (body.includes("Local runtime ready") ||
-        body.includes("Fast Qwen is ready")) &&
+        body.includes("Fast Qwen is ready") ||
+        body.includes("Fast ready")) &&
       normalizedBody.includes("windows")
     ) {
       break;
@@ -132,11 +133,9 @@ try {
       throw new Error(body);
     }
     if (
-      normalizedBody.includes("local response via") &&
-      normalizedBody.includes("task map") &&
-      normalizedBody.includes("visual mcp") &&
+      normalizedBody.includes("response") &&
       normalizedBody.includes("fast qwen") &&
-      normalizedBody.includes("routed fast")
+      normalizedBody.includes("run details")
     ) {
       console.log("Packaged local runtime smoke test passed.");
       await cleanup();

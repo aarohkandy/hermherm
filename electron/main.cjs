@@ -158,7 +158,7 @@ function localRoutingHeuristic(
   const normalized = String(content ?? "").toLowerCase();
   const wordCount = normalized.split(/\s+/).filter(Boolean).length;
   const deepPattern =
-    /\b(plan|build|implement|code|debug|fix|analyze|analyse|compare|architecture|strategy|steps|multi[- ]?step|file|folder|repo|app|windows|install|configure|mcp|hermes|visual|design|research|explain why|tradeoff|risk)\b/;
+    /\b(plan|build|implement|code|debug|fix|analyze|analyse|compare|architecture|strategy|steps|multi[- ]?step|file|folder|repo|install|configure|mcp|design|research|explain why|tradeoff|risk|app changes?|system changes?|change the app|modify the app|update the app)\b/;
 
   if (mode === "build" || mode === "analyze") {
     return {

@@ -725,6 +725,7 @@
 }
 
 .detail-drawer {
+  align-self: start;
   padding: 0;
   overflow: hidden;
 }
@@ -806,6 +807,223 @@
   to {
     transform: rotate(360deg);
   }
+}
+
+.app-topbar {
+  padding: 12px 18px;
+}
+
+.brand-mark {
+  width: 36px;
+  height: 36px;
+}
+
+.brand-lockup p {
+  margin-bottom: 2px;
+}
+
+.brand-lockup h1 {
+  font-size: 18px;
+}
+
+.workbench {
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 10px;
+  padding: 10px;
+}
+
+.control-deck {
+  gap: 10px;
+}
+
+.core-panel {
+  min-height: 176px;
+  padding: 14px;
+}
+
+.core-orb {
+  width: min(104px, 100%);
+}
+
+.core-copy h2 {
+  font-size: 18px;
+}
+
+.core-copy span {
+  font-size: 12px;
+}
+
+.system-readout {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 8px;
+}
+
+.readout-row {
+  min-height: 44px;
+  padding: 7px 9px;
+}
+
+.readout-row span {
+  font-size: 10px;
+}
+
+.readout-row strong {
+  font-size: 13px;
+}
+
+.composer {
+  min-height: 116px;
+}
+
+.artifact-canvas {
+  gap: 10px;
+  overflow-x: hidden;
+  padding: 14px;
+}
+
+.canvas-head h2 {
+  font-size: 22px;
+}
+
+.mcp-pill {
+  color: var(--accent);
+}
+
+.visual-artifact {
+  align-content: start;
+  min-width: 0;
+  gap: 10px;
+  grid-auto-rows: max-content;
+}
+
+.command-strip {
+  align-items: center;
+  padding: 14px 16px;
+}
+
+.command-strip h3 {
+  max-width: 900px;
+  color: #4f3a25;
+  font-size: 18px;
+  font-weight: 750;
+}
+
+.artifact-actions {
+  align-items: center;
+}
+
+.answer-panel {
+  min-height: 240px;
+  padding: 24px;
+  background: rgba(255, 250, 241, 0.82);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--soft-shadow);
+}
+
+.answer-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.run-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.run-chips span,
+.fallback-chip {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  padding: 0 10px;
+  color: var(--muted);
+  background: rgba(238, 225, 204, 0.52);
+  border: 1px solid rgba(198, 174, 140, 0.44);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.fallback-chip {
+  color: var(--amber);
+}
+
+.answer-panel p,
+.answer-panel li {
+  color: var(--text);
+  font-size: 19px;
+  line-height: 1.58;
+}
+
+.answer-panel p {
+  margin: 0 0 14px;
+}
+
+.answer-panel p:last-child {
+  margin-bottom: 0;
+}
+
+.answer-panel ul,
+.answer-panel ol {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding-left: 22px;
+}
+
+.answer-panel h1,
+.answer-panel h2,
+.answer-panel h3 {
+  margin: 0 0 12px;
+  color: var(--ink);
+  line-height: 1.14;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 8px 14px;
+  padding: 0 15px 15px;
+}
+
+.detail-grid span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.detail-grid strong {
+  min-width: 0;
+  color: var(--ink);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.timeline-track.compact {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 0 15px 15px;
+}
+
+.timeline-track.compact .timeline-node {
+  min-height: 86px;
+}
+
+.processing-artifact {
+  min-height: 100%;
+}
+
+.processing-artifact span {
+  display: block;
+  max-width: 620px;
+  margin-top: 8px;
+  color: var(--muted);
+  line-height: 1.45;
 }
 
 @media (max-width: 1120px) {

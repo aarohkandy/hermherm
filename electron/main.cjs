@@ -14,12 +14,29 @@ const HERMES_PROFILE = process.env.HERMES_PROFILE || "hermherm";
 const HERMES_URL = process.env.HERMES_URL || "http://127.0.0.1:8643";
 const HERMES_API_KEY = process.env.HERMES_API_KEY || "hermherm-local-dev";
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://127.0.0.1:11434";
-const LOCAL_MODEL = process.env.HERMHERM_LOCAL_MODEL || "gemma3:4b";
-const LOCAL_CHAT_TIMEOUT_MS = Number(
-  process.env.HERMHERM_CHAT_TIMEOUT_MS || 600_000,
+const FAST_MODEL = process.env.HERMHERM_FAST_MODEL || "qwen2.5:0.5b";
+const DEEP_MODEL = process.env.HERMHERM_DEEP_MODEL || "gemma4:e4b";
+const FAST_CHAT_TIMEOUT_MS = Number(
+  process.env.HERMHERM_FAST_CHAT_TIMEOUT_MS || 180_000,
+);
+const DEEP_CHAT_TIMEOUT_MS = Number(
+  process.env.HERMHERM_DEEP_CHAT_TIMEOUT_MS || 900_000,
+);
+const ROUTER_TIMEOUT_MS = Number(
+  process.env.HERMHERM_ROUTER_TIMEOUT_MS || 45_000,
 );
 const VISUAL_MCP_SERVER = "hermherm-visuals";
 const CHAT_MODES = new Set(["ask", "build", "analyze"]);
+const BRAIN_LABELS = {
+  fast: "Fast Qwen",
+  deep: "Deep Gemma 4",
+};
+
+let deepPullState = {
+  state: "idle",
+  error: null,
+};
+let lastDeepPullProbeAt = 0;
 
 function hermesHeaders(extra = {}) {
   return {
@@ -101,13 +118,352 @@ ${command}
   return `${stdout}${stderr}`.trim();
 }
 
-async function getHermesStatus() {
+function modelState(modelNames, model, pendingState) {
+  const ready = modelNames.includes(model);
+
+  return {
+    name: model,
+    ready,
+    state: ready
+      ? "ready"
+      : pendingState === "starting" || pendingState === "downloading"
+        ? "downloading"
+        : pendingState === "error"
+          ? "error"
+          : "missing",
+    error: ready ? null : pendingState === "error" ? deepPullState.error : null,
+  };
+}
+
+function safeJsonParse(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    const match = String(text).match(/\{[\s\S]*\}/);
+    if (!match) return null;
+
+    try {
+      return JSON.parse(match[0]);
+    } catch {
+      return null;
+    }
+  }
+}
+
+function localRoutingHeuristic(
+  content,
+  mode,
+  fallbackReason = "Local heuristic",
+) {
+  const normalized = String(content ?? "").toLowerCase();
+  const wordCount = normalized.split(/\s+/).filter(Boolean).length;
+  const deepPattern =
+    /\b(plan|build|implement|code|debug|fix|analyze|analyse|compare|architecture|strategy|steps|multi[- ]?step|file|folder|repo|app|windows|install|configure|mcp|hermes|visual|design|research|explain why|tradeoff|risk)\b/;
+
+  if (mode === "build" || mode === "analyze") {
+    return {
+      route: "deep",
+      confidence: 0.9,
+      reason: `${fallbackReason}: ${mode} mode needs the deep brain.`,
+      fallback: true,
+    };
+  }
+
+  if (
+    wordCount > 45 ||
+    normalized.length > 260 ||
+    deepPattern.test(normalized)
+  ) {
+    return {
+      route: "deep",
+      confidence: 0.78,
+      reason: `${fallbackReason}: prompt looks multi-step or important.`,
+      fallback: true,
+    };
+  }
+
+  return {
+    route: "fast",
+    confidence: 0.82,
+    reason: `${fallbackReason}: common lightweight question.`,
+    fallback: true,
+  };
+}
+
+function normalizeRouterDecision(decision, content, mode, fallback) {
+  const heuristic = localRoutingHeuristic(content, mode, "Bias");
+  const route = decision?.route === "deep" ? "deep" : "fast";
+  const confidence = Number(decision?.confidence);
+  const safeConfidence =
+    Number.isFinite(confidence) && confidence >= 0 && confidence <= 1
+      ? confidence
+      : 0.5;
+  const reason =
+    typeof decision?.reason === "string" && decision.reason.trim()
+      ? decision.reason.trim().slice(0, 180)
+      : "Fast classifier route.";
+
+  if (heuristic.route === "deep") {
+    return {
+      ...heuristic,
+      confidence: Math.max(safeConfidence, heuristic.confidence),
+      reason:
+        route === "deep"
+          ? reason
+          : `${heuristic.reason} Classifier suggested Fast, but safety bias upgraded it.`,
+      fallback,
+    };
+  }
+
+  if (safeConfidence < 0.62) {
+    return {
+      route: "deep",
+      confidence: safeConfidence,
+      reason: "Classifier confidence was low, so HermHerm escalated to Deep.",
+      fallback,
+    };
+  }
+
+  return {
+    route,
+    confidence: safeConfidence,
+    reason,
+    fallback,
+  };
+}
+
+async function runOllamaChat({ model, messages, options, timeoutMs, format }) {
+  return readOllamaJson(
+    "/api/chat",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        model,
+        stream: false,
+        ...(format ? { format } : {}),
+        options,
+        messages,
+      }),
+    },
+    timeoutMs,
+  );
+}
+
+async function classifyPrompt(content, mode) {
+  try {
+    const result = await runOllamaChat({
+      model: FAST_MODEL,
+      timeoutMs: ROUTER_TIMEOUT_MS,
+      format: "json",
+      options: {
+        num_ctx: 1024,
+        num_predict: 96,
+        temperature: 0,
+        top_p: 0.1,
+      },
+      messages: [
+        {
+          role: "system",
+          content: [
+            "You are HermHerm's fast local routing classifier.",
+            "Return only JSON with route, confidence, and reason.",
+            "route must be fast or deep.",
+            "Use fast for greetings, tiny facts, simple rewrites, short summaries, and common questions.",
+            "Use deep for planning, implementation, coding, debugging, app changes, files, analysis, comparison, multi-step work, or anything high-stakes.",
+          ].join(" "),
+        },
+        {
+          role: "user",
+          content: `Mode: ${mode}\nPrompt: ${content}`,
+        },
+      ],
+    });
+    const parsed = safeJsonParse(result?.message?.content ?? "");
+    return normalizeRouterDecision(parsed, content, mode, false);
+  } catch (error) {
+    const heuristic = localRoutingHeuristic(
+      content,
+      mode,
+      "Classifier unavailable",
+    );
+    return {
+      ...heuristic,
+      reason: `${heuristic.reason} ${
+        error instanceof Error ? error.message : String(error)
+      }`.slice(0, 180),
+    };
+  }
+}
+
+function buildChatMessages({ content, history, mode, selectedBrain }) {
+  return [
+    {
+      role: "system",
+      content: [
+        "You are HermHerm, a private local desktop assistant running on this Windows computer.",
+        "You are using the isolated hermherm runtime, not the user's default Hermes setup.",
+        selectedBrain === "fast"
+          ? "You are answering as the Fast Qwen brain. Be brief, direct, and useful."
+          : "You are answering as the Deep Gemma 4 brain. Be careful, structured, and complete.",
+        "Write in clear sections with concrete points so the desktop app can turn your answer into visual cards.",
+        "Do not end with a follow-up question unless the user explicitly asks for options.",
+        mode === "build"
+          ? "Mode: Build. Prioritize steps, decisions, sequence, and implementation details."
+          : mode === "analyze"
+            ? "Mode: Analyze. Prioritize signals, tradeoffs, risks, and what to watch next."
+            : "Mode: Ask. Prioritize direct synthesis and useful takeaways.",
+      ].join(" "),
+    },
+    ...history,
+    { role: "user", content },
+  ];
+}
+
+async function ensureDeepModelPull() {
+  if (
+    deepPullState.state === "starting" ||
+    deepPullState.state === "downloading"
+  ) {
+    return;
+  }
+
+  deepPullState = { state: "starting", error: null };
+
+  try {
+    const output = await runWslHermes(
+      `set -euo pipefail
+PROFILE="${HERMES_PROFILE}"
+DEEP_MODEL="${DEEP_MODEL}"
+PROFILE_DIR="$HOME/.hermes/profiles/$PROFILE"
+OLLAMA_ROOT="$HOME/.local/ollama"
+OLLAMA_BIN="$OLLAMA_ROOT/bin/ollama"
+mkdir -p "$PROFILE_DIR/logs" "$PROFILE_DIR/ollama-models"
+
+if [ ! -x "$OLLAMA_BIN" ]; then
+  echo "deep-missing-ollama"
+  exit 0
+fi
+
+if ! curl -fsS http://127.0.0.1:11434/api/version >/dev/null 2>&1; then
+  nohup env OLLAMA_HOST=127.0.0.1:11434 OLLAMA_MODELS="$PROFILE_DIR/ollama-models" OLLAMA_CONTEXT_LENGTH=2048 OLLAMA_KEEP_ALIVE=30m "$OLLAMA_BIN" serve > "$PROFILE_DIR/logs/ollama.log" 2>&1 &
+  echo $! > "$PROFILE_DIR/logs/ollama.pid"
+fi
+
+for _ in $(seq 1 30); do
+  if curl -fsS http://127.0.0.1:11434/api/version >/dev/null 2>&1; then
+    break
+  fi
+  sleep 1
+done
+
+if env OLLAMA_HOST=127.0.0.1:11434 OLLAMA_MODELS="$PROFILE_DIR/ollama-models" "$OLLAMA_BIN" list | awk '{print $1}' | grep -Fx "$DEEP_MODEL" >/dev/null 2>&1; then
+  echo "deep-ready"
+  exit 0
+fi
+
+if [ -f "$PROFILE_DIR/logs/deep-model-pull.pid" ] && kill -0 "$(cat "$PROFILE_DIR/logs/deep-model-pull.pid")" >/dev/null 2>&1; then
+  echo "deep-downloading"
+  exit 0
+fi
+
+if pgrep -f "ollama.*pull.*$DEEP_MODEL" >/dev/null 2>&1; then
+  echo "deep-downloading"
+  exit 0
+fi
+
+nohup env OLLAMA_HOST=127.0.0.1:11434 OLLAMA_MODELS="$PROFILE_DIR/ollama-models" "$OLLAMA_BIN" pull "$DEEP_MODEL" > "$PROFILE_DIR/logs/deep-model-pull.log" 2>&1 &
+echo $! > "$PROFILE_DIR/logs/deep-model-pull.pid"
+echo "deep-downloading"`,
+      60_000,
+    );
+
+    deepPullState = {
+      state: output.includes("deep-ready") ? "ready" : "downloading",
+      error: null,
+    };
+  } catch (error) {
+    deepPullState = {
+      state: "error",
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function refreshDeepPullState() {
+  const now = Date.now();
+  if (now - lastDeepPullProbeAt < 30_000) return;
+  lastDeepPullProbeAt = now;
+
+  try {
+    const output = await runWslHermes(
+      `set -euo pipefail
+PROFILE="${HERMES_PROFILE}"
+DEEP_MODEL="${DEEP_MODEL}"
+PROFILE_DIR="$HOME/.hermes/profiles/$PROFILE"
+PID_FILE="$PROFILE_DIR/logs/deep-model-pull.pid"
+LOG_FILE="$PROFILE_DIR/logs/deep-model-pull.log"
+
+if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" >/dev/null 2>&1; then
+  echo "deep-downloading"
+  exit 0
+fi
+
+if pgrep -f "ollama.*pull.*$DEEP_MODEL" >/dev/null 2>&1; then
+  echo "deep-downloading"
+  exit 0
+fi
+
+if [ -f "$LOG_FILE" ] && tail -n 12 "$LOG_FILE" | grep -qi "error:"; then
+  echo "deep-error"
+  tail -n 4 "$LOG_FILE" | tr '\\n' ' ' | cut -c1-300
+  exit 0
+fi
+
+echo "deep-stopped"`,
+      20_000,
+    );
+
+    if (output.includes("deep-downloading")) {
+      deepPullState = { state: "downloading", error: null };
+    } else if (output.includes("deep-error")) {
+      deepPullState = {
+        state: "error",
+        error: output.replace("deep-error", "").trim() || "Download failed.",
+      };
+    } else {
+      deepPullState = { state: "idle", error: null };
+    }
+  } catch (error) {
+    deepPullState = {
+      state: "error",
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function getHermesStatus({ startDeepPull = true } = {}) {
   const status = {
     ok: false,
     url: HERMES_URL,
     profile: HERMES_PROFILE,
-    model: LOCAL_MODEL,
+    model: FAST_MODEL,
+    activeModel: null,
     ollamaUrl: OLLAMA_URL,
+    models: {
+      fast: {
+        name: FAST_MODEL,
+        label: BRAIN_LABELS.fast,
+        ready: false,
+        state: "missing",
+      },
+      deep: {
+        name: DEEP_MODEL,
+        label: BRAIN_LABELS.deep,
+        ready: false,
+        state: deepPullState.state === "idle" ? "missing" : deepPullState.state,
+        error: deepPullState.error,
+      },
+    },
     hermes: { ok: false },
     ollama: { ok: false },
     visualMcp: {
@@ -139,12 +495,31 @@ async function getHermesStatus() {
       readOllamaJson("/api/tags"),
     ]);
     const models = Array.isArray(tags?.models) ? tags.models : [];
+    const modelNames = models.map((model) => model.name).filter(Boolean);
+
+    if (
+      !modelNames.includes(DEEP_MODEL) &&
+      (deepPullState.state === "starting" ||
+        deepPullState.state === "downloading")
+    ) {
+      await refreshDeepPullState();
+    }
+
     status.ollama = {
       ok: true,
       version: version?.version,
-      models: models.map((model) => model.name).filter(Boolean),
+      models: modelNames,
     };
-    status.ok = models.some((model) => model.name === LOCAL_MODEL);
+    status.models.fast = {
+      label: BRAIN_LABELS.fast,
+      ...modelState(modelNames, FAST_MODEL, "missing"),
+    };
+    status.models.deep = {
+      label: BRAIN_LABELS.deep,
+      ...modelState(modelNames, DEEP_MODEL, deepPullState.state),
+    };
+    status.ok = status.models.fast.ready;
+    status.model = status.models.fast.name;
   } catch (error) {
     status.ollama = {
       ok: false,
@@ -152,9 +527,14 @@ async function getHermesStatus() {
     };
   }
 
+  if (status.ok && !status.models.deep.ready && startDeepPull) {
+    status.models.deep.state = "downloading";
+    void ensureDeepModelPull();
+  }
+
   if (!status.ok) {
     status.error = status.ollama.ok
-      ? `${LOCAL_MODEL} is not downloaded in the HermHerm model store yet.`
+      ? `${FAST_MODEL} is not downloaded in the HermHerm model store yet.`
       : status.ollama.error ||
         status.hermes.error ||
         "Local runtime is not ready.";
@@ -166,7 +546,8 @@ async function getHermesStatus() {
 async function bootstrapHermhermInWsl() {
   return runWslHermes(`set -euo pipefail
 PROFILE="${HERMES_PROFILE}"
-MODEL="${LOCAL_MODEL}"
+FAST_MODEL="${FAST_MODEL}"
+DEEP_MODEL="${DEEP_MODEL}"
 PROFILE_DIR="$HOME/.hermes/profiles/$PROFILE"
 OLLAMA_ROOT="$HOME/.local/ollama"
 OLLAMA_BIN="$OLLAMA_ROOT/bin/ollama"
@@ -178,7 +559,7 @@ if [ ! -x "$HERMES_BIN" ]; then
   exit 11
 fi
 
-if ! "$HERMES_BIN" profile list | grep -Eq "^[[:space:]]*$PROFILE[[:space:]]|^[[:space:]]*◆$PROFILE[[:space:]]"; then
+if ! "$HERMES_BIN" profile list | grep -Eq "(^|[[:space:]])$PROFILE([[:space:]]|$)"; then
   "$HERMES_BIN" profile create "$PROFILE" >/dev/null 2>&1 || true
 fi
 
@@ -187,7 +568,7 @@ mkdir -p "$PROFILE_DIR/logs" "$PROFILE_DIR/workspace" "$PROFILE_DIR/ollama-model
 cat > "$PROFILE_DIR/config.yaml" <<EOF
 model:
   provider: custom
-  default: $MODEL
+  default: $FAST_MODEL
   base_url: http://127.0.0.1:11434/v1
   api_mode: chat_completions
   context_length: 65536
@@ -215,7 +596,7 @@ tool_output:
 auxiliary:
   compression:
     provider: custom
-    model: $MODEL
+    model: $FAST_MODEL
     base_url: http://127.0.0.1:11434/v1
     api_key: ollama
     context_length: 65536
@@ -270,8 +651,15 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 
-if ! env OLLAMA_HOST=127.0.0.1:11434 OLLAMA_MODELS="$PROFILE_DIR/ollama-models" "$OLLAMA_BIN" list | awk '{print $1}' | grep -Fx "$MODEL" >/dev/null 2>&1; then
-  env OLLAMA_HOST=127.0.0.1:11434 OLLAMA_MODELS="$PROFILE_DIR/ollama-models" "$OLLAMA_BIN" pull "$MODEL"
+if ! env OLLAMA_HOST=127.0.0.1:11434 OLLAMA_MODELS="$PROFILE_DIR/ollama-models" "$OLLAMA_BIN" list | awk '{print $1}' | grep -Fx "$FAST_MODEL" >/dev/null 2>&1; then
+  env OLLAMA_HOST=127.0.0.1:11434 OLLAMA_MODELS="$PROFILE_DIR/ollama-models" "$OLLAMA_BIN" pull "$FAST_MODEL"
+fi
+
+if ! env OLLAMA_HOST=127.0.0.1:11434 OLLAMA_MODELS="$PROFILE_DIR/ollama-models" "$OLLAMA_BIN" list | awk '{print $1}' | grep -Fx "$DEEP_MODEL" >/dev/null 2>&1; then
+  if [ ! -f "$PROFILE_DIR/logs/deep-model-pull.pid" ] || ! kill -0 "$(cat "$PROFILE_DIR/logs/deep-model-pull.pid")" >/dev/null 2>&1; then
+    nohup env OLLAMA_HOST=127.0.0.1:11434 OLLAMA_MODELS="$PROFILE_DIR/ollama-models" "$OLLAMA_BIN" pull "$DEEP_MODEL" > "$PROFILE_DIR/logs/deep-model-pull.log" 2>&1 &
+    echo $! > "$PROFILE_DIR/logs/deep-model-pull.pid"
+  fi
 fi
 
 if [ -f "$PROFILE_DIR/logs/gateway-app.pid" ]; then
@@ -295,21 +683,19 @@ echo "HermHerm local runtime is ready."
 `);
 }
 
-ipcMain.handle("hermes:status", async () => getHermesStatus());
-ipcMain.handle("visuals:tools", async () => ({
-  server: VISUAL_MCP_SERVER,
-  tools: visualMcpTools,
-}));
-
-ipcMain.handle("hermes:bootstrap-wsl", async () => {
-  const output = await bootstrapHermhermInWsl();
-  const status = await getHermesStatus();
-  return { output, status };
-});
-
-ipcMain.handle("hermes:chat", async (_event, payload) => {
-  const content = String(payload?.content ?? "").trim();
+function recentHistoryFrom(payload) {
   const history = Array.isArray(payload?.history) ? payload.history : [];
+  return history
+    .slice(-8)
+    .filter((message) => ["user", "assistant"].includes(message?.role))
+    .map((message) => ({
+      role: message.role,
+      content: String(message.content ?? "").slice(0, 4000),
+    }));
+}
+
+async function runChatRequest(payload, { forceDeep = false } = {}) {
+  const content = String(payload?.content ?? "").trim();
   const mode = CHAT_MODES.has(payload?.mode) ? payload.mode : "ask";
 
   if (!content) {
@@ -322,57 +708,60 @@ ipcMain.handle("hermes:chat", async (_event, payload) => {
     status = await getHermesStatus();
   }
 
-  const recentHistory = history
-    .slice(-8)
-    .filter((message) => ["user", "assistant"].includes(message?.role))
-    .map((message) => ({
-      role: message.role,
-      content: String(message.content ?? "").slice(0, 4000),
-    }));
+  const router = forceDeep
+    ? {
+        route: "deep",
+        confidence: 1,
+        reason: "Manual rerun with Deep Gemma 4.",
+        fallback: false,
+      }
+    : await classifyPrompt(content, mode);
 
-  const body = {
-    model: LOCAL_MODEL,
-    stream: false,
+  const deepReady = Boolean(status.models?.deep?.ready);
+
+  if (forceDeep && !deepReady) {
+    throw new Error("Deep Gemma 4 is still downloading.");
+  }
+
+  const selectedBrain = router.route === "deep" && deepReady ? "deep" : "fast";
+  const selectedModel = selectedBrain === "deep" ? DEEP_MODEL : FAST_MODEL;
+  const deepFallback = router.route === "deep" && !deepReady;
+  const canRerunDeep = selectedBrain === "fast" && deepReady;
+  const recentHistory = recentHistoryFrom(payload);
+  const result = await runOllamaChat({
+    model: selectedModel,
+    timeoutMs:
+      selectedBrain === "deep" ? DEEP_CHAT_TIMEOUT_MS : FAST_CHAT_TIMEOUT_MS,
     options: {
-      num_ctx: 2048,
-      num_predict: 700,
-      temperature: 0.7,
+      num_ctx: selectedBrain === "deep" ? 4096 : 2048,
+      num_predict: selectedBrain === "deep" ? 900 : 360,
+      temperature: selectedBrain === "deep" ? 0.62 : 0.35,
       top_p: 0.9,
     },
-    messages: [
-      {
-        role: "system",
-        content: [
-          "You are HermHerm, a private local desktop assistant running on this Windows computer.",
-          "You are using the isolated hermherm runtime, not the user's default Hermes setup.",
-          "Write in clear sections with concrete points so the desktop app can turn your answer into visual cards.",
-          "Do not end with a follow-up question unless the user explicitly asks for options.",
-          mode === "build"
-            ? "Mode: Build. Prioritize steps, decisions, sequence, and implementation details."
-            : mode === "analyze"
-              ? "Mode: Analyze. Prioritize signals, tradeoffs, risks, and what to watch next."
-              : "Mode: Ask. Prioritize direct synthesis and useful takeaways.",
-        ].join(" "),
-      },
-      ...recentHistory,
-      { role: "user", content },
-    ],
+    messages: buildChatMessages({
+      content,
+      history: recentHistory,
+      mode,
+      selectedBrain,
+    }),
+  });
+  const answer = result?.message?.content ?? "";
+  const finalRouter = {
+    ...router,
+    fallback: Boolean(router.fallback || deepFallback),
+    selectedBrain,
+    selectedModel,
+    deepReady,
   };
-
-  const result = await readOllamaJson(
-    "/api/chat",
-    {
-      method: "POST",
-      body: JSON.stringify(body),
-    },
-    LOCAL_CHAT_TIMEOUT_MS,
-  );
 
   return {
     id: result?.created_at,
-    content: result?.message?.content ?? "",
+    content: answer,
     runtime: "ollama",
-    model: LOCAL_MODEL,
+    model: selectedModel,
+    selectedModel,
+    selectedBrain,
+    canRerunDeep,
     usage: {
       prompt_tokens: result?.prompt_eval_count,
       completion_tokens: result?.eval_count,
@@ -382,22 +771,48 @@ ipcMain.handle("hermes:chat", async (_event, payload) => {
     },
     raw: result,
     mode,
+    router: finalRouter,
     visual: callVisualTool("compose_visual_response", {
       prompt: content,
-      response: result?.message?.content ?? "",
+      response: answer,
       mode,
-      model: LOCAL_MODEL,
+      model: selectedModel,
+      selectedModel,
+      selectedBrain,
+      brainLabel: BRAIN_LABELS[selectedBrain],
       runtimeReady: status.ok,
       durationMs: result?.total_duration
         ? Math.round(result.total_duration / 1_000_000)
         : undefined,
+      router: finalRouter,
+      canRerunDeep,
+      deepReady,
     }),
     visualMcp: {
       server: VISUAL_MCP_SERVER,
       tools: ["compose_visual_response"],
     },
   };
+}
+
+ipcMain.handle("hermes:status", async () => getHermesStatus());
+ipcMain.handle("visuals:tools", async () => ({
+  server: VISUAL_MCP_SERVER,
+  tools: visualMcpTools,
+}));
+
+ipcMain.handle("hermes:bootstrap-wsl", async () => {
+  const output = await bootstrapHermhermInWsl();
+  const status = await getHermesStatus();
+  return { output, status };
 });
+
+ipcMain.handle("hermes:chat", async (_event, payload) =>
+  runChatRequest(payload),
+);
+ipcMain.handle("hermes:rerun-deep", async (_event, payload) =>
+  runChatRequest(payload, { forceDeep: true }),
+);
 
 function createWindow() {
   const mainWindow = new BrowserWindow({

@@ -526,7 +526,14 @@
   font-size: 22px;
 }
 
-.command-strip > span {
+.artifact-actions {
+  display: grid;
+  justify-items: end;
+  gap: 9px;
+  flex: 0 0 auto;
+}
+
+.artifact-actions > span {
   flex: 0 0 auto;
   max-width: 240px;
   color: var(--accent);
@@ -534,6 +541,36 @@
   font-weight: 900;
   text-align: right;
   text-transform: uppercase;
+}
+
+.route-note {
+  display: block;
+  max-width: 680px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.deep-rerun-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 11px;
+  color: #fffaf1;
+  background: var(--accent);
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.deep-rerun-button:disabled {
+  cursor: progress;
+  opacity: 0.5;
 }
 
 .metric-grid {

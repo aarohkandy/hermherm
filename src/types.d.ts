@@ -18,6 +18,11 @@ declare global {
           mode?: HermHermMode;
           history?: Array<{ role: "assistant" | "user"; content: string }>;
         }) => Promise<HermesChatResult>;
+        rerunDeep: (payload: {
+          content: string;
+          mode?: HermHermMode;
+          history?: Array<{ role: "assistant" | "user"; content: string }>;
+        }) => Promise<HermesChatResult>;
       };
       visuals?: {
         tools: () => Promise<{
@@ -56,12 +61,31 @@ declare global {
     state: "complete" | "ready";
   };
 
+  type BrainId = "fast" | "deep";
+
+  type RouterResult = {
+    route: BrainId;
+    confidence: number;
+    reason: string;
+    fallback: boolean;
+    selectedBrain?: BrainId;
+    selectedModel?: string;
+    deepReady?: boolean;
+  };
+
   type VisualPayload = {
     version: number;
     source: string;
     mode: HermHermMode;
+    selectedBrain?: BrainId;
+    selectedModel?: string;
+    brainLabel?: string;
+    router?: RouterResult;
+    canRerunDeep?: boolean;
+    deepReady?: boolean;
     headline: string;
     subtitle: string;
+    modeSubtitle?: string;
     intent: string;
     cards: VisualCard[];
     timeline: VisualTimelineItem[];
@@ -74,8 +98,25 @@ declare global {
     url: string;
     profile?: string;
     model?: string;
+    activeModel?: string | null;
     ollamaUrl?: string;
     error?: string;
+    models?: {
+      fast?: {
+        name: string;
+        label?: string;
+        ready: boolean;
+        state: "ready" | "missing" | "downloading" | "error";
+        error?: string | null;
+      };
+      deep?: {
+        name: string;
+        label?: string;
+        ready: boolean;
+        state: "ready" | "missing" | "downloading" | "error";
+        error?: string | null;
+      };
+    };
     hermes?: {
       ok?: boolean;
       error?: string;
@@ -100,6 +141,10 @@ declare global {
     content: string;
     runtime?: string;
     model?: string;
+    selectedModel?: string;
+    selectedBrain?: BrainId;
+    router?: RouterResult;
+    canRerunDeep?: boolean;
     mode?: HermHermMode;
     visual?: VisualPayload;
     visualMcp?: {

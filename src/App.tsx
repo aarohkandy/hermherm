@@ -6,7 +6,6 @@ import {
   CheckCircle2,
   CircleDot,
   Cpu,
-  Gauge,
   HardDrive,
   Layers3,
   Loader2,
@@ -23,7 +22,8 @@ import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
 import "./App.css";
 
-const defaultLocalModel = "gemma3:4b";
+const fastModel = "qwen2.5:0.5b";
+const deepModel = "gemma4:e4b";
 
 type Exchange = {
   id: string;
@@ -34,6 +34,10 @@ type Exchange = {
   visual?: VisualPayload;
   error?: string;
   usage?: HermesChatResult["usage"];
+  selectedModel?: string;
+  selectedBrain?: BrainId;
+  router?: RouterResult;
+  canRerunDeep?: boolean;
 };
 
 type ModeDefinition = {
@@ -51,7 +55,8 @@ const modes: ModeDefinition[] = [
 
 const processingStages = [
   "Command received",
-  "Local model engaged",
+  "Fast brain routing",
+  "Model selected",
   "Visual MCP composing",
   "Artifact readying",
 ];
@@ -62,7 +67,21 @@ const browserClient = {
       ok: false,
       url: "http://127.0.0.1:8643",
       profile: "hermherm",
-      model: defaultLocalModel,
+      model: fastModel,
+      models: {
+        fast: {
+          name: fastModel,
+          label: "Fast Qwen",
+          ready: false,
+          state: "missing",
+        },
+        deep: {
+          name: deepModel,
+          label: "Deep Gemma 4",
+          ready: false,
+          state: "missing",
+        },
+      },
       visualMcp: {
         ok: true,
         server: "hermherm-visuals",
@@ -76,6 +95,9 @@ const browserClient = {
   },
   async chat(): Promise<HermesChatResult> {
     throw new Error("Local chat is available in the desktop app.");
+  },
+  async rerunDeep(): Promise<HermesChatResult> {
+    throw new Error("Deep rerun is available in the desktop app.");
   },
 };
 
@@ -118,9 +140,12 @@ function fallbackVisual(
       state: index === processingStages.length - 1 ? "ready" : "complete",
     })),
     metrics: [
-      { label: "Model", value: defaultLocalModel, tone: "warm" },
+      { label: "Brain", value: "Fast Qwen", tone: "warm" },
+      { label: "Model", value: fastModel, tone: "warm" },
       { label: "Visual MCP", value: "preview", tone: "amber" },
     ],
+    selectedBrain: "fast",
+    selectedModel: fastModel,
     rawText: response,
   };
 }
@@ -151,14 +176,19 @@ function App() {
   const activeVisual = latestExchange?.visual ?? latestComplete?.visual;
   const isProcessing =
     isStarting || isSending || Boolean(latestExchange?.pending);
-  const runtimeLabel = runtimeReady
-    ? "Local runtime ready"
-    : isStarting
-      ? "Starting local runtime"
-      : "Local runtime offline";
   const startupReadable = runtimeReady
-    ? "Gemma and the isolated hermherm profile are ready."
+    ? "Fast Qwen is ready. Deep Gemma 4 runs when available."
     : startupNote;
+
+  function buildHistory() {
+    return exchanges
+      .filter((exchange) => exchange.response && !exchange.pending)
+      .flatMap((exchange) => [
+        { role: "user" as const, content: exchange.prompt },
+        { role: "assistant" as const, content: exchange.response ?? "" },
+      ])
+      .slice(-8);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -192,7 +222,21 @@ function App() {
             ok: false,
             url: "http://127.0.0.1:8643",
             profile: "hermherm",
-            model: defaultLocalModel,
+            model: fastModel,
+            models: {
+              fast: {
+                name: fastModel,
+                label: "Fast Qwen",
+                ready: false,
+                state: "missing",
+              },
+              deep: {
+                name: deepModel,
+                label: "Deep Gemma 4",
+                ready: false,
+                state: "missing",
+              },
+            },
             error: error instanceof Error ? error.message : String(error),
           });
           setStartupNote("Local runtime could not start automatically");
@@ -222,6 +266,19 @@ function App() {
     });
   }, [exchanges]);
 
+  useEffect(() => {
+    if (status?.models?.deep?.state !== "downloading") return;
+
+    const interval = window.setInterval(() => {
+      void client
+        .status()
+        .then(setStatus)
+        .catch(() => undefined);
+    }, 10_000);
+
+    return () => window.clearInterval(interval);
+  }, [client, status?.models?.deep?.state]);
+
   function newSession() {
     setExchanges([]);
     setInput("");
@@ -232,13 +289,7 @@ function App() {
     if (!content || isSending) return;
 
     const exchangeId = createId();
-    const history = exchanges
-      .filter((exchange) => exchange.response && !exchange.pending)
-      .flatMap((exchange) => [
-        { role: "user" as const, content: exchange.prompt },
-        { role: "assistant" as const, content: exchange.response ?? "" },
-      ])
-      .slice(-8);
+    const history = buildHistory();
 
     setInput("");
     setIsSending(true);
@@ -262,6 +313,10 @@ function App() {
                 response,
                 visual,
                 usage: result.usage,
+                selectedModel: result.selectedModel,
+                selectedBrain: result.selectedBrain,
+                router: result.router,
+                canRerunDeep: result.canRerunDeep,
               }
             : exchange,
         ),
@@ -280,6 +335,73 @@ function App() {
                 response: `I could not get a local response yet.\n\n\`\`\`text\n${message}\n\`\`\``,
               }
             : exchange,
+        ),
+      );
+    } finally {
+      setIsSending(false);
+    }
+  }
+
+  async function rerunWithDeep(exchange: Exchange) {
+    if (isSending || !exchange.prompt) return;
+
+    const exchangeId = createId();
+    const history = buildHistory();
+
+    setIsSending(true);
+    setExchanges((current) => [
+      ...current,
+      {
+        id: exchangeId,
+        prompt: exchange.prompt,
+        mode: exchange.mode,
+        pending: true,
+      },
+    ]);
+
+    try {
+      const result = await client.rerunDeep({
+        content: exchange.prompt,
+        history,
+        mode: exchange.mode,
+      });
+      const response =
+        result.content || "The deep model returned an empty response.";
+      const visual =
+        result.visual ??
+        fallbackVisual(exchange.prompt, response, exchange.mode);
+
+      setExchanges((current) =>
+        current.map((item) =>
+          item.id === exchangeId
+            ? {
+                ...item,
+                pending: false,
+                response,
+                visual,
+                usage: result.usage,
+                selectedModel: result.selectedModel,
+                selectedBrain: result.selectedBrain,
+                router: result.router,
+                canRerunDeep: result.canRerunDeep,
+              }
+            : item,
+        ),
+      );
+      const latestStatus = await client.status();
+      setStatus(latestStatus);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setExchanges((current) =>
+        current.map((item) =>
+          item.id === exchangeId
+            ? {
+                ...item,
+                pending: false,
+                error: message,
+                response: `Deep rerun is not ready yet.\n\n\`\`\`text\n${message}\n\`\`\``,
+              }
+            : item,
         ),
       );
     } finally {
@@ -371,15 +493,25 @@ function App() {
             <div className="readout-row">
               <Cpu size={17} />
               <div>
-                <span>Model</span>
-                <strong>{status?.model ?? defaultLocalModel}</strong>
+                <span>Fast brain</span>
+                <strong>
+                  {status?.models?.fast?.ready ? "Ready" : "Missing"} -{" "}
+                  {status?.models?.fast?.name ?? fastModel}
+                </strong>
               </div>
             </div>
             <div className="readout-row">
-              <HardDrive size={17} />
+              <BrainCircuit size={17} />
               <div>
-                <span>Profile</span>
-                <strong>{status?.profile ?? "hermherm"}</strong>
+                <span>Deep brain</span>
+                <strong>
+                  {status?.models?.deep?.ready
+                    ? "Ready"
+                    : status?.models?.deep?.state === "downloading"
+                      ? "Downloading"
+                      : "Missing"}{" "}
+                  - {status?.models?.deep?.name ?? deepModel}
+                </strong>
               </div>
             </div>
             <div className="readout-row">
@@ -392,10 +524,10 @@ function App() {
               </div>
             </div>
             <div className="readout-row">
-              <Gauge size={17} />
+              <HardDrive size={17} />
               <div>
-                <span>Runtime</span>
-                <strong>{runtimeLabel}</strong>
+                <span>Profile</span>
+                <strong>{status?.profile ?? "hermherm"}</strong>
               </div>
             </div>
           </section>
@@ -452,6 +584,10 @@ function App() {
             <VisualArtifact
               exchange={latestComplete ?? latestExchange}
               visual={activeVisual}
+              deepReady={Boolean(status?.models?.deep?.ready)}
+              deepState={status?.models?.deep?.state ?? "missing"}
+              isSending={isSending}
+              onRerunDeep={rerunWithDeep}
             />
           ) : (
             <EmptyArtifact runtimeReady={runtimeReady} />
@@ -472,7 +608,7 @@ function EmptyArtifact({ runtimeReady }: { runtimeReady: boolean }) {
         <span>
           {runtimeReady
             ? "Standing by."
-            : "Gemma, Hermes, and the visual server are being checked."}
+            : "Fast Qwen, Deep Gemma 4, Hermes, and the visual server are being checked."}
         </span>
       </div>
     </section>
@@ -510,13 +646,25 @@ function ProcessingArtifact({
 function VisualArtifact({
   exchange,
   visual,
+  deepReady,
+  deepState,
+  isSending,
+  onRerunDeep,
 }: {
   exchange?: Exchange;
   visual: VisualPayload;
+  deepReady: boolean;
+  deepState: "ready" | "missing" | "downloading" | "error";
+  isSending: boolean;
+  onRerunDeep: (exchange: Exchange) => void;
 }) {
   const duration = exchange?.usage?.total_duration_ms
     ? `${Math.round(exchange.usage.total_duration_ms / 1000)}s`
     : null;
+  const fastArtifact =
+    exchange?.selectedBrain === "fast" || visual.selectedBrain === "fast";
+  const showDeepRerun = Boolean(exchange && fastArtifact);
+  const canRerunDeep = showDeepRerun && deepReady && !isSending;
 
   return (
     <article className="visual-artifact">
@@ -524,8 +672,32 @@ function VisualArtifact({
         <div>
           <p className="eyebrow">Command</p>
           <h3>{exchange?.prompt ?? visual.headline}</h3>
+          {visual.router?.route ? (
+            <small className="route-note">
+              Routed {visual.router.route} -{" "}
+              {Math.round(visual.router.confidence * 100)}% -{" "}
+              {visual.router.reason}
+            </small>
+          ) : null}
         </div>
-        <span>{visual.subtitle}</span>
+        <div className="artifact-actions">
+          <span>{visual.subtitle}</span>
+          {showDeepRerun && exchange ? (
+            <button
+              className="deep-rerun-button"
+              disabled={!canRerunDeep}
+              onClick={() => onRerunDeep(exchange)}
+              type="button"
+            >
+              <BrainCircuit size={15} />
+              {deepReady
+                ? "Rerun with Deep"
+                : deepState === "downloading"
+                  ? "Deep downloading"
+                  : "Deep unavailable"}
+            </button>
+          ) : null}
+        </div>
       </section>
 
       <section className="metric-grid">
@@ -566,8 +738,8 @@ function VisualArtifact({
           <p className="eyebrow">Task map</p>
           <span>
             {duration
-              ? `Local response via ${exchange?.visual?.metrics[0]?.value ?? "Ollama"} in ${duration}`
-              : "Local response via Gemma"}
+              ? `Local response via ${visual.brainLabel ?? exchange?.selectedModel ?? "local model"} in ${duration}`
+              : `Local response via ${visual.brainLabel ?? "local model"}`}
           </span>
         </div>
         <div className="timeline-track">

@@ -10,6 +10,12 @@ const tools = [
         response: { type: "string" },
         mode: { type: "string", enum: ["ask", "build", "analyze"] },
         model: { type: "string" },
+        selectedModel: { type: "string" },
+        selectedBrain: { type: "string", enum: ["fast", "deep"] },
+        brainLabel: { type: "string" },
+        router: { type: "object" },
+        canRerunDeep: { type: "boolean" },
+        deepReady: { type: "boolean" },
         runtimeReady: { type: "boolean" },
         durationMs: { type: "number" },
       },
@@ -65,7 +71,7 @@ function normalizeText(value) {
 
 function compactLine(line) {
   return line
-    .replace(/^[-*•]\s*/, "")
+    .replace(/^[-*]\s*/, "")
     .replace(/^\d+[.)]\s*/, "")
     .replace(/^#+\s*/, "")
     .trim();
@@ -113,7 +119,7 @@ function scoreForText(text) {
   return 94;
 }
 
-function createTimeline(response, mode = "ask") {
+function createTimeline(response, mode = "ask", brainLabel = "Local brain") {
   const lines = pickLines(response, 5);
   const fallback = {
     ask: [
@@ -143,13 +149,21 @@ function createTimeline(response, mode = "ask") {
           ? "Output"
           : "Process",
     title: clampText(line, 72),
-    detail:
-      index === source.length - 1 ? "Ready for review" : "Local Gemma runtime",
+    detail: index === source.length - 1 ? "Ready for review" : brainLabel,
     state: index === source.length - 1 ? "ready" : "complete",
   }));
 }
 
-function createCards({ prompt, response, mode = "ask", durationMs }) {
+function createCards({
+  prompt,
+  response,
+  mode = "ask",
+  durationMs,
+  selectedBrain = "fast",
+  selectedModel,
+  brainLabel = "Fast Qwen",
+  router,
+}) {
   const lines = pickLines(response, 8);
   const primary = lines[0] ?? "The local model returned a response.";
   const secondary = lines.slice(1, 4);
@@ -172,10 +186,12 @@ function createCards({ prompt, response, mode = "ask", durationMs }) {
       id: "runtime",
       kind: "status",
       eyebrow: "Local system",
-      title: "Private runtime",
+      title: brainLabel,
       body: "Generated locally through the isolated hermherm profile.",
       items: [
-        "Gemma local model",
+        selectedModel || "Local model",
+        selectedBrain === "deep" ? "Deep reasoning path" : "Fast response path",
+        router?.reason ? clampText(router.reason, 92) : "Router active",
         "Hermes profile stays separate",
         durationMs
           ? `${Math.round(durationMs / 1000)}s response window`
@@ -235,16 +251,44 @@ function createVisualPayload(args = {}) {
   const mode = ["ask", "build", "analyze"].includes(args.mode)
     ? args.mode
     : "ask";
+  const selectedBrain = args.selectedBrain === "deep" ? "deep" : "fast";
+  const selectedModel = args.selectedModel || args.model || "local";
+  const brainLabel =
+    args.brainLabel ||
+    (selectedBrain === "deep" ? "Deep Gemma 4" : "Fast Qwen");
   const durationMs = Number(args.durationMs || 0) || undefined;
-  const cards = createCards({ prompt, response, mode, durationMs });
-  const timeline = createTimeline(response, mode);
+  const router =
+    args.router && typeof args.router.route === "string" ? args.router : null;
+  const cards = createCards({
+    prompt,
+    response,
+    mode,
+    durationMs,
+    selectedBrain,
+    selectedModel,
+    brainLabel,
+    router,
+  });
+  const timeline = createTimeline(response, mode, brainLabel);
 
   return {
     version: 1,
     source: "hermherm-visual-mcp",
     mode,
+    selectedBrain,
+    selectedModel,
+    brainLabel,
+    ...(router ? { router } : {}),
+    canRerunDeep: Boolean(args.canRerunDeep),
+    deepReady: Boolean(args.deepReady),
     headline: titleFromPrompt(prompt),
     subtitle:
+      selectedBrain === "deep"
+        ? "Deep Gemma 4 visual response"
+        : router?.fallback
+          ? "Fast fallback visual response"
+          : "Fast Qwen visual response",
+    modeSubtitle:
       mode === "build"
         ? "Build-focused visual response"
         : mode === "analyze"
@@ -256,14 +300,19 @@ function createVisualPayload(args = {}) {
     timeline,
     metrics: [
       {
-        label: "Model",
-        value: args.model || "local",
+        label: "Brain",
+        value: brainLabel,
         tone: "warm",
       },
       {
-        label: "Visual MCP",
-        value: "active",
-        tone: "green",
+        label: "Model",
+        value: selectedModel,
+        tone: selectedBrain === "deep" ? "green" : "warm",
+      },
+      {
+        label: "Route",
+        value: router?.route === "deep" ? "deep" : selectedBrain,
+        tone: router?.fallback ? "amber" : "green",
       },
       {
         label: "Runtime",

@@ -105,9 +105,11 @@ try {
 
   for (let attempt = 0; attempt < 120; attempt += 1) {
     const body = await evalJs("document.body.innerText");
+    const normalizedBody = body.toLowerCase();
     if (
-      body.includes("Local runtime ready") &&
-      body.toLowerCase().includes("windows")
+      (body.includes("Local runtime ready") ||
+        body.includes("Fast Qwen is ready")) &&
+      normalizedBody.includes("windows")
     ) {
       break;
     }
@@ -132,7 +134,9 @@ try {
     if (
       normalizedBody.includes("local response via") &&
       normalizedBody.includes("task map") &&
-      normalizedBody.includes("visual mcp")
+      normalizedBody.includes("visual mcp") &&
+      normalizedBody.includes("fast qwen") &&
+      normalizedBody.includes("routed fast")
     ) {
       console.log("Packaged local runtime smoke test passed.");
       await cleanup();

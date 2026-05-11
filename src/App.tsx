@@ -4,7 +4,6 @@ import {
   ArrowUp,
   BrainCircuit,
   CheckCircle2,
-  CircleDot,
   Cpu,
   Layers3,
   Loader2,
@@ -42,12 +41,35 @@ type ModeDefinition = {
   label: string;
   noun: string;
   icon: typeof Sparkles;
+  hint: string;
+  placeholder: string;
 };
 
 const modes: ModeDefinition[] = [
-  { id: "ask", label: "Ask", noun: "Query", icon: Sparkles },
-  { id: "build", label: "Build", noun: "Construct", icon: Layers3 },
-  { id: "analyze", label: "Analyze", noun: "Scan", icon: ScanLine },
+  {
+    id: "ask",
+    label: "Ask",
+    noun: "Ask",
+    icon: Sparkles,
+    hint: "Quick answers",
+    placeholder: "Ask HermHerm anything...",
+  },
+  {
+    id: "build",
+    label: "Build",
+    noun: "Build",
+    icon: Layers3,
+    hint: "Plans and changes",
+    placeholder: "Describe what you want built or changed...",
+  },
+  {
+    id: "analyze",
+    label: "Analyze",
+    noun: "Analyze",
+    icon: ScanLine,
+    hint: "Careful reads",
+    placeholder: "Paste something to inspect or compare...",
+  },
 ];
 
 const processingStages = [
@@ -99,6 +121,11 @@ const browserClient = {
 };
 
 const createId = () => Math.random().toString(36).slice(2);
+
+const clampPercent = (value?: number | null) =>
+  typeof value === "number" && Number.isFinite(value)
+    ? Math.max(0, Math.min(100, Math.round(value)))
+    : null;
 
 function fallbackVisual(
   prompt: string,
@@ -181,6 +208,13 @@ function App() {
     : status?.models?.deep?.state === "downloading"
       ? "Downloading"
       : "Waiting";
+  const deepProgress = status?.models?.deep?.progress;
+  const deepPercent = clampPercent(deepProgress?.percent);
+  const deepProgressLabel =
+    deepProgress?.label ??
+    (status?.models?.deep?.state === "downloading"
+      ? "Preparing download"
+      : deepState);
 
   function buildHistory() {
     return exchanges
@@ -276,7 +310,7 @@ function App() {
         .status()
         .then(setStatus)
         .catch(() => undefined);
-    }, 10_000);
+    }, 3_000);
 
     return () => window.clearInterval(interval);
   }, [client, status?.models?.deep?.state]);
@@ -443,15 +477,21 @@ function App() {
             const Icon = item.icon;
             return (
               <button
+                aria-pressed={item.id === mode}
                 className={
                   item.id === mode ? "mode-button active" : "mode-button"
                 }
+                data-mode={item.id}
                 key={item.id}
                 onClick={() => setMode(item.id)}
+                title={item.hint}
                 type="button"
               >
                 <Icon size={15} />
-                {item.label}
+                <span>
+                  {item.label}
+                  <small>{item.hint}</small>
+                </span>
               </button>
             );
           })}
@@ -472,17 +512,13 @@ function App() {
       <section className="workbench">
         <aside className="control-deck">
           <section className="core-panel">
-            <div className="core-orb" aria-label="HermHerm core">
-              <div className="core-ring outer" />
-              <div className="core-ring middle" />
-              <div className="core-ring inner" />
-              <div className="core-center">
-                {isProcessing ? (
-                  <Loader2 size={36} />
-                ) : (
-                  <BrainCircuit size={38} />
-                )}
-              </div>
+            <div
+              className={isProcessing ? "core-bobber is-active" : "core-bobber"}
+              aria-label="HermHerm core"
+            >
+              <span className="bobber-node" />
+              <span className="bobber-node" />
+              <span className="bobber-node" />
             </div>
             <div className="core-copy">
               <p>{activeMode.label}</p>
@@ -501,11 +537,37 @@ function App() {
                 </strong>
               </div>
             </div>
-            <div className="readout-row">
+            <div
+              className={
+                status?.models?.deep?.state === "downloading"
+                  ? "readout-row deep-readout is-downloading"
+                  : "readout-row deep-readout"
+              }
+            >
               <BrainCircuit size={17} />
               <div>
                 <span>Deep</span>
                 <strong>{deepState}</strong>
+                {status?.models?.deep?.state === "downloading" ||
+                deepPercent !== null ? (
+                  <>
+                    <div
+                      aria-label="Deep download progress"
+                      aria-valuemax={100}
+                      aria-valuemin={0}
+                      aria-valuenow={deepPercent ?? 0}
+                      className="download-track"
+                      role="progressbar"
+                    >
+                      <i style={{ width: `${deepPercent ?? 0}%` }} />
+                    </div>
+                    <small>
+                      {deepPercent !== null
+                        ? `${deepPercent}% - ${deepProgressLabel}`
+                        : deepProgressLabel}
+                    </small>
+                  </>
+                ) : null}
               </div>
             </div>
           </section>
@@ -519,16 +581,16 @@ function App() {
               onKeyDown={handleComposerKeyDown}
               placeholder={
                 runtimeReady
-                  ? "Ask HermHerm anything..."
+                  ? activeMode.placeholder
                   : isStarting
                     ? "Local runtime is starting..."
-                    : "Ask HermHerm anything..."
+                    : activeMode.placeholder
               }
               rows={4}
               value={input}
             />
             <button
-              className="send-button"
+              className={isSending ? "send-button is-loading" : "send-button"}
               disabled={isSending || !input.trim()}
               type="submit"
             >
@@ -544,8 +606,9 @@ function App() {
         >
           <div className="canvas-head">
             <div>
-              <p className="eyebrow">Surface</p>
-              <h2>{activeVisual ? "Response" : "Command surface"}</h2>
+              <p className="eyebrow">{activeMode.label} mode</p>
+              <h2>{activeVisual ? "Response" : activeMode.noun}</h2>
+              <span>{activeMode.hint}</span>
             </div>
             <span className="mcp-pill">
               <BrainCircuit size={15} />
@@ -589,17 +652,23 @@ function EmptyArtifact({ runtimeReady }: { runtimeReady: boolean }) {
 
 function ProcessingArtifact({
   prompt,
+  mode,
 }: {
   prompt: string;
   mode: HermHermMode;
 }) {
+  const modeCopy = modes.find((item) => item.id === mode)?.hint ?? "Working";
+
   return (
     <section className="processing-artifact">
-      <div className="breathing-node">
-        <CircleDot size={38} />
+      <div className="thinking-bobber" aria-hidden="true">
+        <span />
+        <span />
+        <span />
       </div>
       <div>
-        <h3>Thinking</h3>
+        <h3>Working locally</h3>
+        <p>{modeCopy}</p>
         <span>{prompt}</span>
       </div>
     </section>

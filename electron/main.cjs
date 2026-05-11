@@ -38,6 +38,7 @@ const BRAIN_LABELS = {
 let deepPullState = {
   state: "idle",
   error: null,
+  progress: null,
 };
 let lastDeepPullProbeAt = 0;
 
@@ -135,7 +136,55 @@ function modelState(modelNames, model, pendingState) {
           ? "error"
           : "missing",
     error: ready ? null : pendingState === "error" ? deepPullState.error : null,
+    progress: ready ? { percent: 100, label: "Ready" } : deepPullState.progress,
   };
+}
+
+function stripAnsi(text) {
+  return String(text ?? "")
+    .replace(/\u001b\[[0-9;?]*[A-Za-z]/g, "")
+    .replace(/\u001b\][^\u0007]*(\u0007|\u001b\\)/g, "");
+}
+
+function parseDeepPullProgress(logText) {
+  const clean = stripAnsi(logText).replace(/\r/g, "\n");
+  const lines = clean
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const lastLines = lines.slice(-80);
+
+  for (const line of [...lastLines].reverse()) {
+    const percentMatch = line.match(/\b(\d{1,3})%\b/);
+    if (percentMatch) {
+      const percent = Math.min(99, Math.max(0, Number(percentMatch[1])));
+      const sizeMatch = line.match(
+        /(\d+(?:\.\d+)?\s*(?:B|KB|MB|GB|TB))\s*\/\s*(\d+(?:\.\d+)?\s*(?:B|KB|MB|GB|TB))/i,
+      );
+      return {
+        percent,
+        label: sizeMatch
+          ? `${sizeMatch[1]} of ${sizeMatch[2]}`
+          : `${percent}% downloaded`,
+      };
+    }
+  }
+
+  if (
+    lastLines.some((line) => /verifying|success|writing manifest/i.test(line))
+  ) {
+    return { percent: 98, label: "Finalizing model" };
+  }
+
+  if (lastLines.some((line) => /pulling manifest/i.test(line))) {
+    return { percent: 3, label: "Connecting to Ollama registry" };
+  }
+
+  if (lastLines.some((line) => /pulling/i.test(line))) {
+    return { percent: 8, label: "Starting model download" };
+  }
+
+  return null;
 }
 
 function safeJsonParse(text) {
@@ -330,7 +379,11 @@ async function ensureDeepModelPull() {
     return;
   }
 
-  deepPullState = { state: "starting", error: null };
+  deepPullState = {
+    state: "starting",
+    error: null,
+    progress: { percent: 0, label: "Preparing download" },
+  };
 
   try {
     const output = await runWslHermes(
@@ -366,11 +419,13 @@ fi
 
 if [ -f "$PROFILE_DIR/logs/deep-model-pull.pid" ] && kill -0 "$(cat "$PROFILE_DIR/logs/deep-model-pull.pid")" >/dev/null 2>&1; then
   echo "deep-downloading"
+  [ -f "$PROFILE_DIR/logs/deep-model-pull.log" ] && tail -c 12000 "$PROFILE_DIR/logs/deep-model-pull.log"
   exit 0
 fi
 
 if pgrep -f "ollama.*pull.*$DEEP_MODEL" >/dev/null 2>&1; then
   echo "deep-downloading"
+  [ -f "$PROFILE_DIR/logs/deep-model-pull.log" ] && tail -c 12000 "$PROFILE_DIR/logs/deep-model-pull.log"
   exit 0
 fi
 
@@ -383,18 +438,25 @@ echo "deep-downloading"`,
     deepPullState = {
       state: output.includes("deep-ready") ? "ready" : "downloading",
       error: null,
+      progress: output.includes("deep-ready")
+        ? { percent: 100, label: "Ready" }
+        : (parseDeepPullProgress(output) ?? {
+            percent: 3,
+            label: "Connecting to Ollama registry",
+          }),
     };
   } catch (error) {
     deepPullState = {
       state: "error",
       error: error instanceof Error ? error.message : String(error),
+      progress: { percent: 0, label: "Download failed" },
     };
   }
 }
 
 async function refreshDeepPullState() {
   const now = Date.now();
-  if (now - lastDeepPullProbeAt < 30_000) return;
+  if (now - lastDeepPullProbeAt < 5_000) return;
   lastDeepPullProbeAt = now;
 
   try {
@@ -408,11 +470,13 @@ LOG_FILE="$PROFILE_DIR/logs/deep-model-pull.log"
 
 if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" >/dev/null 2>&1; then
   echo "deep-downloading"
+  [ -f "$LOG_FILE" ] && tail -c 12000 "$LOG_FILE"
   exit 0
 fi
 
 if pgrep -f "ollama.*pull.*$DEEP_MODEL" >/dev/null 2>&1; then
   echo "deep-downloading"
+  [ -f "$LOG_FILE" ] && tail -c 12000 "$LOG_FILE"
   exit 0
 fi
 
@@ -422,24 +486,48 @@ if [ -f "$LOG_FILE" ] && tail -n 12 "$LOG_FILE" | grep -qi "error:"; then
   exit 0
 fi
 
+if [ -f "$LOG_FILE" ]; then
+  echo "deep-progress"
+  tail -c 12000 "$LOG_FILE"
+fi
+
 echo "deep-stopped"`,
       20_000,
     );
 
     if (output.includes("deep-downloading")) {
-      deepPullState = { state: "downloading", error: null };
+      deepPullState = {
+        state: "downloading",
+        error: null,
+        progress: parseDeepPullProgress(output) ??
+          deepPullState.progress ?? {
+            percent: 3,
+            label: "Connecting to Ollama registry",
+          },
+      };
     } else if (output.includes("deep-error")) {
       deepPullState = {
         state: "error",
         error: output.replace("deep-error", "").trim() || "Download failed.",
+        progress: { percent: 0, label: "Retrying download" },
+      };
+    } else if (output.includes("deep-progress")) {
+      deepPullState = {
+        state: "downloading",
+        error: null,
+        progress: parseDeepPullProgress(output) ?? {
+          percent: 3,
+          label: "Connecting to Ollama registry",
+        },
       };
     } else {
-      deepPullState = { state: "idle", error: null };
+      deepPullState = { state: "idle", error: null, progress: null };
     }
   } catch (error) {
     deepPullState = {
       state: "error",
       error: error instanceof Error ? error.message : String(error),
+      progress: { percent: 0, label: "Download check failed" },
     };
   }
 }
@@ -465,6 +553,7 @@ async function getHermesStatus({ startDeepPull = true } = {}) {
         ready: false,
         state: deepPullState.state === "idle" ? "missing" : deepPullState.state,
         error: deepPullState.error,
+        progress: deepPullState.progress,
       },
     },
     hermes: { ok: false },
@@ -532,6 +621,10 @@ async function getHermesStatus({ startDeepPull = true } = {}) {
 
   if (status.ok && !status.models.deep.ready && startDeepPull) {
     status.models.deep.state = "downloading";
+    status.models.deep.progress = deepPullState.progress ?? {
+      percent: 3,
+      label: "Connecting to Ollama registry",
+    };
     void ensureDeepModelPull();
   }
 

@@ -93,6 +93,35 @@ async function evalJs(expression) {
   return response.result.result.value;
 }
 
+async function clickSelector(selector) {
+  const result = await evalJs(`(() => {
+    const el = document.querySelector(${JSON.stringify(selector)});
+    if (!el) return false;
+    el.click();
+    return true;
+  })()`);
+  if (!result) throw new Error(`Missing clickable selector: ${selector}`);
+}
+
+async function fillComposer(text) {
+  const result = await evalJs(`(() => {
+    const el = document.querySelector('textarea');
+    if (!el) return false;
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+    setter.call(el, ${JSON.stringify(text)});
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`);
+  if (!result) throw new Error("Composer was not available.");
+}
+
+async function expectBodyIncludes(fragment) {
+  const body = await evalJs("document.body.innerText");
+  if (!body.toLowerCase().includes(fragment.toLowerCase())) {
+    throw new Error(`Expected body to include ${fragment}, saw:\n${body}`);
+  }
+}
+
 async function cleanup() {
   ws.close();
   child.kill();
@@ -134,13 +163,17 @@ try {
     await delay(1000);
   }
 
-  await evalJs(`(() => {
-    const el = document.querySelector('textarea');
-    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
-    setter.call(el, 'Write one short sentence saying the packaged local app works.');
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    document.querySelector('.send-button').click();
-  })()`);
+  await clickSelector('[data-mode="build"]');
+  await expectBodyIncludes("Plans and changes");
+  await clickSelector('[data-mode="analyze"]');
+  await expectBodyIncludes("Careful reads");
+  await clickSelector('[data-mode="ask"]');
+  await expectBodyIncludes("Quick answers");
+
+  await fillComposer(
+    "Write one short sentence saying the packaged local app works.",
+  );
+  await clickSelector(".send-button");
 
   for (let attempt = 0; attempt < 600; attempt += 1) {
     const body = await evalJs("document.body.innerText");
@@ -153,6 +186,10 @@ try {
       normalizedBody.includes("fast qwen") &&
       normalizedBody.includes("run details")
     ) {
+      await clickSelector(".detail-drawer summary");
+      await expectBodyIncludes("Route");
+      await clickSelector(".ghost-button");
+      await expectBodyIncludes("Ready for a command");
       console.log("Packaged local runtime smoke test passed.");
       await cleanup();
       process.exit(0);

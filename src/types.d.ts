@@ -63,6 +63,11 @@ declare global {
 
   type BrainId = "fast" | "deep";
 
+  type ModelProgress = {
+    percent: number;
+    label: string;
+  };
+
   type RouterResult = {
     route: BrainId;
     confidence: number;
@@ -108,6 +113,7 @@ declare global {
         ready: boolean;
         state: "ready" | "missing" | "downloading" | "error";
         error?: string | null;
+        progress?: ModelProgress | null;
       };
       deep?: {
         name: string;
@@ -115,6 +121,7 @@ declare global {
         ready: boolean;
         state: "ready" | "missing" | "downloading" | "error";
         error?: string | null;
+        progress?: ModelProgress | null;
       };
     };
     hermes?: {

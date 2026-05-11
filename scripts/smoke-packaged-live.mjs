@@ -17,14 +17,20 @@ const exe = path.join(
 );
 
 try {
-  execFileSync("taskkill", ["/IM", "HermHerm.exe", "/F"], { stdio: "ignore" });
+  execFileSync("taskkill", ["/IM", "HermHerm.exe", "/T", "/F"], {
+    stdio: "ignore",
+  });
 } catch {
   // The app was not already running.
 }
 
-const child = spawn(exe, ["--remote-debugging-port=9333"], {
+const child = spawn(exe, ["--smoke-test", "--remote-debugging-port=9333"], {
   detached: false,
   stdio: "ignore",
+  env: {
+    ...process.env,
+    HERMHERM_SMOKE_TEST: "1",
+  },
 });
 
 async function getDebugPages() {
@@ -91,13 +97,23 @@ async function cleanup() {
   ws.close();
   child.kill();
   try {
-    execFileSync("taskkill", ["/IM", "HermHerm.exe", "/F"], {
+    execFileSync("taskkill", ["/IM", "HermHerm.exe", "/T", "/F"], {
       stdio: "ignore",
     });
   } catch {
     // Already stopped.
   }
 }
+
+process.once("exit", () => {
+  try {
+    execFileSync("taskkill", ["/IM", "HermHerm.exe", "/T", "/F"], {
+      stdio: "ignore",
+    });
+  } catch {
+    // Already stopped.
+  }
+});
 
 try {
   await send("Runtime.enable");

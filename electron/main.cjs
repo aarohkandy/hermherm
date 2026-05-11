@@ -8,6 +8,9 @@ const {
 } = require("./visual-mcp-server.cjs");
 
 const isDev = process.env.NODE_ENV === "development";
+const isSmokeTest =
+  process.env.HERMHERM_SMOKE_TEST === "1" ||
+  process.argv.includes("--smoke-test");
 const execFileAsync = promisify(execFile);
 
 const HERMES_PROFILE = process.env.HERMES_PROFILE || "hermherm";
@@ -823,16 +826,20 @@ function createWindow() {
     backgroundColor: "#f3eadc",
     title: "HermHerm",
     show: false,
+    skipTaskbar: isSmokeTest,
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      backgroundThrottling: false,
     },
   });
 
   mainWindow.once("ready-to-show", () => {
-    mainWindow.show();
+    if (!isSmokeTest) {
+      mainWindow.show();
+    }
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {

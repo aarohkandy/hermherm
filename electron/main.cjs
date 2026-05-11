@@ -558,10 +558,14 @@ echo "deep-stopped"`,
       deepPullState = { state: "idle", error: null, progress: null };
     }
   } catch (error) {
+    const raw = `${error?.stdout ?? ""}\n${error?.stderr ?? ""}\n${
+      error instanceof Error ? error.message : String(error)
+    }`;
+    const message = parseDeepPullError(raw) ?? "Download check failed.";
     deepPullState = {
       state: "error",
-      error: error instanceof Error ? error.message : String(error),
-      progress: { percent: 0, label: "Download check failed" },
+      error: message,
+      progress: progressForDeepError(message),
     };
   }
 }

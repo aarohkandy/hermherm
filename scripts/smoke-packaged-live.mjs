@@ -163,12 +163,8 @@ try {
     await delay(1000);
   }
 
-  await clickSelector('[data-mode="build"]');
-  await expectBodyIncludes("Plans and changes");
-  await clickSelector('[data-mode="analyze"]');
-  await expectBodyIncludes("Careful reads");
-  await clickSelector('[data-mode="ask"]');
-  await expectBodyIncludes("Quick answers");
+  await expectBodyIncludes("Signal idle");
+  await expectBodyIncludes("Awaiting impulse");
 
   await fillComposer(
     "Write one short sentence saying the packaged local app works.",
@@ -182,14 +178,14 @@ try {
       throw new Error(body);
     }
     if (
-      normalizedBody.includes("output") &&
+      normalizedBody.includes("signal resolved") &&
       normalizedBody.includes("fast qwen") &&
       normalizedBody.includes("run details")
     ) {
       await clickSelector(".detail-drawer summary");
       await expectBodyIncludes("Route");
       await clickSelector(".ghost-button");
-      await expectBodyIncludes("Ready for a command");
+      await expectBodyIncludes("Awaiting impulse");
       console.log("Packaged local runtime smoke test passed.");
       await cleanup();
       process.exit(0);

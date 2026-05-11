@@ -5,12 +5,9 @@ import {
   BrainCircuit,
   CheckCircle2,
   Cpu,
-  Layers3,
   Loader2,
   MessageSquarePlus,
   Orbit,
-  ScanLine,
-  Sparkles,
   WifiOff,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -36,41 +33,11 @@ type Exchange = {
   canRerunDeep?: boolean;
 };
 
-type ModeDefinition = {
-  id: HermHermMode;
-  label: string;
-  noun: string;
-  icon: typeof Sparkles;
-  hint: string;
-  placeholder: string;
+const modeCopy: Record<HermHermMode, { label: string; hint: string }> = {
+  ask: { label: "Listening", hint: "Fast local synthesis" },
+  build: { label: "Constructing", hint: "Planning and making" },
+  analyze: { label: "Scanning", hint: "Reading for patterns" },
 };
-
-const modes: ModeDefinition[] = [
-  {
-    id: "ask",
-    label: "Ask",
-    noun: "Ask",
-    icon: Sparkles,
-    hint: "Quick answers",
-    placeholder: "Ask HermHerm anything...",
-  },
-  {
-    id: "build",
-    label: "Build",
-    noun: "Build",
-    icon: Layers3,
-    hint: "Plans and changes",
-    placeholder: "Describe what you want built or changed...",
-  },
-  {
-    id: "analyze",
-    label: "Analyze",
-    noun: "Analyze",
-    icon: ScanLine,
-    hint: "Careful reads",
-    placeholder: "Paste something to inspect or compare...",
-  },
-];
 
 const processingStages = [
   "Command received",
@@ -130,6 +97,42 @@ const clampPercent = (value?: number | null) =>
     ? Math.max(0, Math.min(100, Math.round(value)))
     : null;
 
+function inferPromptMode(content: string): HermHermMode {
+  const normalized = content.toLowerCase();
+  if (
+    /\b(build|make|create|implement|fix|change|update|design|code|app|feature)\b/.test(
+      normalized,
+    )
+  ) {
+    return "build";
+  }
+
+  if (
+    /\b(analyze|analyse|compare|review|explain why|tradeoff|risk|inspect|summarize)\b/.test(
+      normalized,
+    )
+  ) {
+    return "analyze";
+  }
+
+  return "ask";
+}
+
+function friendlyDeepError(error?: string | null) {
+  if (!error) return "Gemma 4 could not finish downloading.";
+  if (/timeout|timed out|i\/o timeout/i.test(error)) {
+    return "Ollama registry timed out.";
+  }
+  if (/manifest|not found/i.test(error)) {
+    return "Gemma 4 manifest is unavailable.";
+  }
+  if (/command failed|wsl\.exe|download check/i.test(error)) {
+    return "Download check failed.";
+  }
+
+  return "Gemma 4 download paused.";
+}
+
 function fallbackVisual(
   prompt: string,
   response: string,
@@ -180,7 +183,6 @@ function fallbackVisual(
 function App() {
   const [exchanges, setExchanges] = useState<Exchange[]>([]);
   const [input, setInput] = useState("");
-  const [mode, setMode] = useState<HermHermMode>("ask");
   const [status, setStatus] = useState<HermesStatus | null>(null);
   const [isStarting, setIsStarting] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -197,10 +199,11 @@ function App() {
   }, []);
 
   const runtimeReady = Boolean(status?.ok);
-  const activeMode = modes.find((item) => item.id === mode) ?? modes[0];
   const latestExchange = exchanges[exchanges.length - 1];
   const latestComplete = [...exchanges].reverse().find((item) => item.visual);
   const activeVisual = latestExchange?.visual ?? latestComplete?.visual;
+  const surfaceMode = latestExchange?.mode ?? latestComplete?.mode ?? "ask";
+  const activeMode = modeCopy[surfaceMode];
   const isProcessing =
     isStarting || isSending || Boolean(latestExchange?.pending);
   const startupReadable = runtimeReady
@@ -216,6 +219,7 @@ function App() {
   const deepProgress = status?.models?.deep?.progress;
   const deepPercent = clampPercent(deepProgress?.percent);
   const deepError = status?.models?.deep?.error;
+  const deepErrorLabel = friendlyDeepError(deepError);
   const deepProgressLabel =
     deepProgress?.label ??
     (status?.models?.deep?.state === "downloading"
@@ -378,19 +382,21 @@ function App() {
 
     const exchangeId = createId();
     const history = buildHistory();
+    const promptMode = inferPromptMode(content);
 
     setInput("");
     setIsSending(true);
     setExchanges((current) => [
       ...current,
-      { id: exchangeId, prompt: content, mode, pending: true },
+      { id: exchangeId, prompt: content, mode: promptMode, pending: true },
     ]);
 
     try {
-      const result = await client.chat({ content, history, mode });
+      const result = await client.chat({ content, history, mode: promptMode });
       const response =
         result.content || "The local model returned an empty response.";
-      const visual = result.visual ?? fallbackVisual(content, response, mode);
+      const visual =
+        result.visual ?? fallbackVisual(content, response, promptMode);
 
       setExchanges((current) =>
         current.map((exchange) =>
@@ -511,7 +517,9 @@ function App() {
 
   return (
     <main
-      className={`app-shell mode-${mode} ${isProcessing ? "is-processing" : ""}`}
+      className={`app-shell mode-${surfaceMode} ${
+        isProcessing ? "is-processing" : ""
+      }`}
     >
       <header className="app-topbar">
         <div className="brand-lockup">
@@ -524,30 +532,10 @@ function App() {
           </div>
         </div>
 
-        <nav className="mode-switcher" aria-label="Mode">
-          {modes.map((item) => {
-            const Icon = item.icon;
-            return (
-              <button
-                aria-pressed={item.id === mode}
-                className={
-                  item.id === mode ? "mode-button active" : "mode-button"
-                }
-                data-mode={item.id}
-                key={item.id}
-                onClick={() => setMode(item.id)}
-                title={item.hint}
-                type="button"
-              >
-                <Icon size={15} />
-                <span>
-                  {item.label}
-                  <small>{item.hint}</small>
-                </span>
-              </button>
-            );
-          })}
-        </nav>
+        <div className="entity-status" aria-live="polite">
+          <span>{isProcessing ? "Signal active" : "Signal idle"}</span>
+          <strong>{activeMode.hint}</strong>
+        </div>
 
         <div className="top-actions">
           <button className="ghost-button" type="button" onClick={newSession}>
@@ -564,17 +552,10 @@ function App() {
       <section className="workbench">
         <aside className="control-deck">
           <section className="core-panel">
-            <div
-              className={isProcessing ? "core-bobber is-active" : "core-bobber"}
-              aria-label="HermHerm core"
-            >
-              <span className="bobber-node" />
-              <span className="bobber-node" />
-              <span className="bobber-node" />
-            </div>
+            <SignalCore state={isProcessing ? "thinking" : "idle"} compact />
             <div className="core-copy">
               <p>{activeMode.label}</p>
-              <h2>{isProcessing ? "Composing locally" : "Awaiting command"}</h2>
+              <h2>{isProcessing ? "Signal forming" : "Awaiting impulse"}</h2>
               <span>{startupReadable}</span>
             </div>
           </section>
@@ -602,8 +583,9 @@ function App() {
               <div>
                 <span>Deep</span>
                 <strong>{deepState}</strong>
-                {status?.models?.deep?.state === "downloading" ||
-                deepPercent !== null ? (
+                {status?.models?.deep?.state !== "error" &&
+                (status?.models?.deep?.state === "downloading" ||
+                  deepPercent !== null) ? (
                   <>
                     <div
                       aria-label="Deep download progress"
@@ -624,9 +606,7 @@ function App() {
                 ) : null}
                 {status?.models?.deep?.state === "error" ? (
                   <>
-                    <small title={deepError ?? undefined}>
-                      {deepError ?? "Gemma 4 download failed."}
-                    </small>
+                    <small title={deepErrorLabel}>{deepErrorLabel}</small>
                     <button
                       className="inline-retry-button"
                       onClick={retryDeepDownload}
@@ -649,10 +629,10 @@ function App() {
               onKeyDown={handleComposerKeyDown}
               placeholder={
                 runtimeReady
-                  ? activeMode.placeholder
+                  ? "Tell HermHerm what to do..."
                   : isStarting
-                    ? "Local runtime is starting..."
-                    : activeMode.placeholder
+                    ? "Local runtime is waking..."
+                    : "Tell HermHerm what to do..."
               }
               rows={4}
               value={input}
@@ -674,8 +654,8 @@ function App() {
         >
           <div className="canvas-head">
             <div>
-              <p className="eyebrow">{activeMode.label} mode</p>
-              <h2>{activeVisual ? "Output" : activeMode.noun}</h2>
+              <p className="eyebrow">Living surface</p>
+              <h2>{activeVisual ? "Signal resolved" : activeMode.label}</h2>
               <span>{activeMode.hint}</span>
             </div>
             <span className="mcp-pill">
@@ -707,12 +687,44 @@ function App() {
   );
 }
 
+function SignalCore({
+  state,
+  compact = false,
+}: {
+  state: "idle" | "thinking" | "resolved";
+  compact?: boolean;
+}) {
+  return (
+    <div
+      className={`signal-core signal-${state} ${compact ? "compact" : ""}`}
+      aria-label="HermHerm signal core"
+    >
+      <div className="signal-halo" />
+      <div className="signal-orbit orbit-one" />
+      <div className="signal-orbit orbit-two" />
+      <div className="signal-orbit orbit-three" />
+      <div className="signal-nucleus">
+        {Array.from({ length: 10 }, (_, index) => (
+          <i key={index} />
+        ))}
+      </div>
+      <div className="signal-lanes">
+        {Array.from({ length: 6 }, (_, index) => (
+          <span key={index} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function EmptyArtifact({ runtimeReady }: { runtimeReady: boolean }) {
   return (
     <section className="empty-artifact">
-      <div className="empty-grid" />
-      <div>
-        <h3>{runtimeReady ? "Ready for a command" : "Runtime warming"}</h3>
+      <div className="field-grid" />
+      <SignalCore state={runtimeReady ? "idle" : "thinking"} />
+      <div className="surface-caption">
+        <p>{runtimeReady ? "Listening" : "Warming"}</p>
+        <h3>{runtimeReady ? "Awaiting impulse" : "Local mind waking"}</h3>
       </div>
     </section>
   );
@@ -725,18 +737,14 @@ function ProcessingArtifact({
   prompt: string;
   mode: HermHermMode;
 }) {
-  const modeCopy = modes.find((item) => item.id === mode)?.hint ?? "Working";
+  const active = modeCopy[mode] ?? modeCopy.ask;
 
   return (
     <section className="processing-artifact">
-      <div className="thinking-bobber" aria-hidden="true">
-        <span />
-        <span />
-        <span />
-      </div>
+      <SignalCore state="thinking" />
       <div>
-        <h3>Working locally</h3>
-        <p>{modeCopy}</p>
+        <h3>Signal forming</h3>
+        <p>{active.hint}</p>
         <span>{prompt}</span>
       </div>
     </section>
@@ -798,24 +806,52 @@ function VisualArtifact({
         </div>
       </section>
 
-      <section className="answer-panel">
-        <div className="answer-topline">
-          <div className="run-chips">
-            {runMeta.map((item) => (
-              <span key={item}>{item}</span>
-            ))}
+      <section className="answer-panel signal-output">
+        <div className="signal-output-core">
+          <SignalCore state="resolved" compact />
+          <div>
+            <div className="answer-topline">
+              <div className="run-chips">
+                {runMeta.map((item) => (
+                  <span key={item}>{item}</span>
+                ))}
+              </div>
+              {visual.router?.fallback ? (
+                <span className="fallback-chip">Fallback</span>
+              ) : null}
+            </div>
+            <p className="signal-caption">{visual.subtitle}</p>
+            <h3>{visual.cards[0]?.title ?? "Resolved signal"}</h3>
           </div>
-          {visual.router?.fallback ? (
-            <span className="fallback-chip">Fallback</span>
-          ) : null}
         </div>
+
+        <div className="signal-card-grid">
+          {visual.cards.slice(0, 4).map((card) => (
+            <section className={`signal-card kind-${card.kind}`} key={card.id}>
+              <span>{card.eyebrow}</span>
+              <strong>{card.title}</strong>
+              <p>{card.body}</p>
+              {card.items?.length ? (
+                <div className="signal-points">
+                  {card.items.slice(0, 4).map((item) => (
+                    <i key={item}>{item}</i>
+                  ))}
+                </div>
+              ) : null}
+            </section>
+          ))}
+        </div>
+      </section>
+
+      <details className="detail-drawer transcript-drawer">
+        <summary>Transcript</summary>
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           rehypePlugins={[rehypeHighlight]}
         >
           {visual.rawText}
         </ReactMarkdown>
-      </section>
+      </details>
 
       <details className="detail-drawer">
         <summary>Run details</summary>

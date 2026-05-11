@@ -81,15 +81,33 @@
   font-size: 20px;
 }
 
-.mode-switcher {
+.entity-status {
   justify-self: center;
-  gap: 6px;
+  display: grid;
+  gap: 2px;
   min-width: 0;
-  padding: 5px;
-  background: rgba(255, 250, 241, 0.76);
+  min-height: 44px;
+  align-content: center;
+  padding: 0 18px;
+  color: var(--ink);
+  background: rgba(255, 250, 241, 0.52);
   border: 1px solid var(--line);
   border-radius: 8px;
   box-shadow: var(--soft-shadow);
+  text-align: center;
+}
+
+.entity-status span {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.entity-status strong {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
 }
 
 .mode-button,
@@ -212,6 +230,10 @@
   overflow: hidden;
 }
 
+.core-panel .signal-core.compact {
+  width: 112px;
+}
+
 .core-orb,
 .core-bobber {
   display: grid;
@@ -254,6 +276,180 @@
 
 .core-bobber.is-active .bobber-node {
   animation-duration: 0.95s;
+}
+
+.signal-core {
+  display: grid;
+  position: relative;
+  width: min(320px, 68vw);
+  aspect-ratio: 1;
+  place-items: center;
+  isolation: isolate;
+}
+
+.signal-core.compact {
+  width: 112px;
+}
+
+.signal-halo,
+.signal-orbit,
+.signal-nucleus,
+.signal-lanes {
+  position: absolute;
+  border-radius: 999px;
+}
+
+.signal-halo {
+  inset: 4%;
+  background:
+    radial-gradient(circle, rgba(255, 250, 241, 0.92) 0 30%, transparent 58%),
+    conic-gradient(
+      from 90deg,
+      transparent,
+      rgba(159, 114, 61, 0.34),
+      transparent,
+      rgba(90, 123, 101, 0.18),
+      transparent
+    );
+  filter: blur(0.2px);
+  opacity: 0.92;
+  animation: signal-breathe 5.2s ease-in-out infinite;
+}
+
+.signal-orbit {
+  border: 1px solid rgba(137, 95, 50, 0.22);
+  box-shadow: inset 0 0 36px rgba(137, 95, 50, 0.07);
+}
+
+.orbit-one {
+  inset: 10%;
+  animation: signal-tilt 7s ease-in-out infinite;
+}
+
+.orbit-two {
+  inset: 24%;
+  border-style: dashed;
+  animation: signal-tilt 5.8s ease-in-out infinite reverse;
+}
+
+.orbit-three {
+  inset: 38%;
+  border-color: rgba(64, 118, 88, 0.2);
+  animation: signal-pulse 2.8s ease-in-out infinite;
+}
+
+.signal-nucleus {
+  display: grid;
+  width: 28%;
+  aspect-ratio: 1;
+  place-items: center;
+  background: #fff8ed;
+  border: 1px solid rgba(137, 95, 50, 0.28);
+  box-shadow:
+    0 20px 60px rgba(92, 65, 38, 0.22),
+    inset 0 0 24px rgba(159, 114, 61, 0.12);
+  overflow: hidden;
+}
+
+.signal-nucleus::before {
+  position: absolute;
+  width: 44%;
+  aspect-ratio: 1;
+  background: var(--accent);
+  border-radius: 999px;
+  box-shadow: 0 0 30px rgba(159, 114, 61, 0.45);
+  content: "";
+  animation: nucleus-heartbeat 2.6s ease-in-out infinite;
+}
+
+.signal-nucleus i {
+  position: absolute;
+  width: 2px;
+  height: 90%;
+  background: linear-gradient(
+    transparent,
+    rgba(137, 95, 50, 0.28),
+    transparent
+  );
+  transform: rotate(calc(var(--i, 1) * 18deg));
+}
+
+.signal-nucleus i:nth-child(1) {
+  --i: 1;
+}
+.signal-nucleus i:nth-child(2) {
+  --i: 2;
+}
+.signal-nucleus i:nth-child(3) {
+  --i: 3;
+}
+.signal-nucleus i:nth-child(4) {
+  --i: 4;
+}
+.signal-nucleus i:nth-child(5) {
+  --i: 5;
+}
+.signal-nucleus i:nth-child(6) {
+  --i: 6;
+}
+.signal-nucleus i:nth-child(7) {
+  --i: 7;
+}
+.signal-nucleus i:nth-child(8) {
+  --i: 8;
+}
+.signal-nucleus i:nth-child(9) {
+  --i: 9;
+}
+.signal-nucleus i:nth-child(10) {
+  --i: 10;
+}
+
+.signal-lanes {
+  display: grid;
+  inset: 0;
+  align-content: center;
+  gap: 12px;
+  overflow: hidden;
+  mask-image: radial-gradient(
+    circle,
+    transparent 0 27%,
+    black 30% 64%,
+    transparent 70%
+  );
+}
+
+.signal-lanes span {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(137, 95, 50, 0.08),
+    rgba(137, 95, 50, 0.52),
+    rgba(64, 118, 88, 0.28),
+    transparent
+  );
+  transform-origin: center;
+  animation: lane-scan 3.2s ease-in-out infinite;
+}
+
+.signal-lanes span:nth-child(2n) {
+  animation-delay: 0.35s;
+  transform: rotate(14deg);
+}
+
+.signal-lanes span:nth-child(3n) {
+  animation-delay: 0.7s;
+  transform: rotate(-11deg);
+}
+
+.signal-thinking .signal-halo,
+.signal-thinking .signal-nucleus::before {
+  animation-duration: 1.25s;
+}
+
+.signal-resolved .signal-halo {
+  opacity: 1;
 }
 
 .core-ring,
@@ -557,13 +753,20 @@
   display: grid;
   position: relative;
   min-height: 420px;
-  place-items: center;
+  align-content: center;
+  justify-items: center;
+  gap: 18px;
   overflow: hidden;
   padding: 30px;
   text-align: center;
 }
 
-.empty-grid {
+.empty-artifact .signal-core {
+  width: min(250px, 52vw);
+}
+
+.empty-grid,
+.field-grid {
   position: absolute;
   inset: 28px;
   background-image:
@@ -573,9 +776,30 @@
   mask-image: radial-gradient(circle, black, transparent 72%);
 }
 
+.field-grid {
+  inset: 0;
+  background-size: 64px 64px;
+  opacity: 0.72;
+  mask-image: radial-gradient(circle at center, black, transparent 76%);
+}
+
 .empty-artifact > div:last-child {
   position: relative;
   max-width: 430px;
+}
+
+.surface-caption {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+}
+
+.surface-caption p {
+  margin: 0 0 6px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
 }
 
 .empty-artifact h3,
@@ -588,9 +812,13 @@
   min-height: 500px;
   place-items: center;
   align-content: center;
-  gap: 22px;
+  gap: 18px;
   padding: 30px;
   text-align: center;
+}
+
+.processing-artifact .signal-core {
+  width: min(340px, 70vw);
 }
 
 .breathing-node {
@@ -957,6 +1185,74 @@
   }
 }
 
+@keyframes signal-breathe {
+  0%,
+  100% {
+    transform: scale(0.96);
+    opacity: 0.74;
+  }
+
+  50% {
+    transform: scale(1.04);
+    opacity: 1;
+  }
+}
+
+@keyframes signal-tilt {
+  0%,
+  100% {
+    transform: rotate(-6deg) scaleX(1.02);
+  }
+
+  50% {
+    transform: rotate(9deg) scaleX(0.92);
+  }
+}
+
+@keyframes signal-pulse {
+  0%,
+  100% {
+    transform: scale(0.88);
+    opacity: 0.4;
+  }
+
+  50% {
+    transform: scale(1.15);
+    opacity: 0.94;
+  }
+}
+
+@keyframes nucleus-heartbeat {
+  0%,
+  100% {
+    transform: scale(0.74);
+    opacity: 0.7;
+  }
+
+  38% {
+    transform: scale(1.06);
+    opacity: 1;
+  }
+
+  55% {
+    transform: scale(0.88);
+    opacity: 0.82;
+  }
+}
+
+@keyframes lane-scan {
+  0%,
+  100% {
+    opacity: 0.15;
+    transform: translateX(-12%) scaleX(0.62);
+  }
+
+  50% {
+    opacity: 0.9;
+    transform: translateX(12%) scaleX(1.04);
+  }
+}
+
 @keyframes download-sheen {
   from {
     transform: translateX(-100%);
@@ -1089,6 +1385,114 @@
   border: 1px solid var(--line);
   border-radius: 8px;
   box-shadow: var(--soft-shadow);
+}
+
+.signal-output {
+  display: grid;
+  gap: 18px;
+}
+
+.signal-output-core {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+}
+
+.signal-caption {
+  margin: 0 0 8px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.signal-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.signal-card {
+  position: relative;
+  min-height: 150px;
+  overflow: hidden;
+  padding: 16px;
+  background:
+    linear-gradient(
+      120deg,
+      rgba(255, 250, 241, 0.86),
+      rgba(238, 225, 204, 0.34)
+    ),
+    rgba(255, 250, 241, 0.76);
+  border: 1px solid rgba(198, 174, 140, 0.48);
+  border-radius: 8px;
+}
+
+.signal-card::before {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(137, 95, 50, 0.08),
+    transparent
+  );
+  content: "";
+  animation: download-sheen 4.8s ease-in-out infinite;
+}
+
+.signal-card span {
+  position: relative;
+  display: block;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.signal-card strong {
+  position: relative;
+  display: block;
+  margin-top: 10px;
+  color: var(--ink);
+  font-size: 20px;
+  line-height: 1.12;
+}
+
+.signal-card p {
+  position: relative;
+  margin: 10px 0 0;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.48;
+}
+
+.signal-points {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 14px;
+}
+
+.signal-points i {
+  display: inline-flex;
+  min-height: 25px;
+  align-items: center;
+  padding: 0 9px;
+  color: var(--muted);
+  background: rgba(238, 225, 204, 0.62);
+  border: 1px solid rgba(198, 174, 140, 0.5);
+  border-radius: 999px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.transcript-drawer {
+  opacity: 0.86;
 }
 
 .answer-topline {
@@ -1237,8 +1641,15 @@
   }
 
   .visual-card-grid,
+  .signal-card-grid,
   .metric-grid,
   .timeline-track {
     grid-template-columns: 1fr;
+  }
+
+  .signal-output-core {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
   }
 }

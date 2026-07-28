@@ -95,6 +95,7 @@ ${command}
     {
       timeout,
       windowsHide: true,
+      maxBuffer: 64 * 1024 * 1024,
     },
   );
 
@@ -163,7 +164,19 @@ async function getHermesStatus() {
   return status;
 }
 
-async function bootstrapHermhermInWsl() {
+let bootstrapPromise = null;
+
+function bootstrapHermhermInWsl() {
+  if (bootstrapPromise) {
+    return bootstrapPromise;
+  }
+  bootstrapPromise = runBootstrapScript().finally(() => {
+    bootstrapPromise = null;
+  });
+  return bootstrapPromise;
+}
+
+async function runBootstrapScript() {
   return runWslHermes(`set -euo pipefail
 PROFILE="${HERMES_PROFILE}"
 MODEL="${LOCAL_MODEL}"

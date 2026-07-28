@@ -270,6 +270,7 @@ function App() {
       setStatus(latestStatus);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      const response = `I could not get a local response yet.\n\n\`\`\`text\n${message}\n\`\`\``;
       setExchanges((current) =>
         current.map((exchange) =>
           exchange.id === exchangeId
@@ -277,7 +278,8 @@ function App() {
                 ...exchange,
                 pending: false,
                 error: message,
-                response: `I could not get a local response yet.\n\n\`\`\`text\n${message}\n\`\`\``,
+                response,
+                visual: fallbackVisual(content, response, mode),
               }
             : exchange,
         ),
